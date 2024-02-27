@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/utils"
 	"github.com/laurentsimon/jupyter-lineage/pkg/session"
@@ -11,8 +13,8 @@ import (
 
 func usage(prog string) {
 	msg := "" +
-		"Usage: %s listeningIP, listeningShellPort, listeningStdinPort, listeningIOPubPort, listeningControlPort, listeningHeartBeatPort\n" +
-		"destinationIP, destinationShellPort, destinationStdinPort, destinationIOPubPort, destinationControlPort, destinationHeartBeatPort\n"
+		"Usage: %s srcIP, srcShellPort, srcStdinPort, srcIOPubPort, srcControlPort, srcHeartBeatPort\n" +
+		"dstIP, dstShellPort, dstStdinPort, dstIOPubPort, dstControlPort, dstHeartBeatPort\n"
 	utils.Log(msg, prog)
 	os.Exit(1)
 }
@@ -27,44 +29,44 @@ func main() {
 	if len(arguments) != 12 {
 		usage(os.Args[0])
 	}
-	// Listening metadata.
-	listeningIP := arguments[0]
-	listeningShellPort := arguments[1]
-	listeningStdinPort := arguments[2]
-	listeningIOPubPort := arguments[3]
-	listeningControlPort := arguments[4]
-	listeningHeartbeatPort := arguments[5]
-	// Destination metadata.
-	destinationIP := arguments[6]
-	destinationShellPort := arguments[7]
-	destinationStdinPort := arguments[8]
-	destinationIOPubPort := arguments[9]
-	destinationControlPort := arguments[10]
-	destinationHeartbeatPort := arguments[11]
+	// src metadata.
+	srcIP := arguments[0]
+	srcShellPort := arguments[1]
+	srcStdinPort := arguments[2]
+	srcIOPubPort := arguments[3]
+	srcControlPort := arguments[4]
+	srcHeartbeatPort := arguments[5]
+	// dst metadata.
+	dstIP := arguments[6]
+	dstShellPort := arguments[7]
+	dstStdinPort := arguments[8]
+	dstIOPubPort := arguments[9]
+	dstControlPort := arguments[10]
+	dstHeartbeatPort := arguments[11]
 
 	utils.Log("%q %q %q %q %q %q %q %q %q %q %q %q\n",
-		listeningIP, listeningShellPort, listeningStdinPort, listeningIOPubPort, listeningControlPort, listeningHeartbeatPort,
-		destinationIP, destinationShellPort, destinationStdinPort, destinationIOPubPort, destinationControlPort, destinationHeartbeatPort,
+		srcIP, srcShellPort, srcStdinPort, srcIOPubPort, srcControlPort, srcHeartbeatPort,
+		dstIP, dstShellPort, dstStdinPort, dstIOPubPort, dstControlPort, dstHeartbeatPort,
 	)
 
-	listeningMetadata := session.NetworkMetadata{
-		IP: listeningIP,
+	srcMetadata := session.NetworkMetadata{
+		IP: srcIP,
 		Ports: session.Ports{
-			Shell:     utils.StringToUint(listeningShellPort),
-			Stdin:     utils.StringToUint(listeningStdinPort),
-			IOPub:     utils.StringToUint(listeningIOPubPort),
-			Control:   utils.StringToUint(listeningControlPort),
-			Heartbeat: utils.StringToUint(listeningHeartbeatPort),
+			Shell:     utils.StringToUint(srcShellPort),
+			Stdin:     utils.StringToUint(srcStdinPort),
+			IOPub:     utils.StringToUint(srcIOPubPort),
+			Control:   utils.StringToUint(srcControlPort),
+			Heartbeat: utils.StringToUint(srcHeartbeatPort),
 		},
 	}
-	destinationMetadata := session.NetworkMetadata{
-		IP: destinationIP,
+	dstMetadata := session.NetworkMetadata{
+		IP: dstIP,
 		Ports: session.Ports{
-			Shell:     utils.StringToUint(destinationShellPort),
-			Stdin:     utils.StringToUint(destinationStdinPort),
-			IOPub:     utils.StringToUint(destinationIOPubPort),
-			Control:   utils.StringToUint(destinationControlPort),
-			Heartbeat: utils.StringToUint(destinationHeartbeatPort),
+			Shell:     utils.StringToUint(dstShellPort),
+			Stdin:     utils.StringToUint(dstStdinPort),
+			IOPub:     utils.StringToUint(dstIOPubPort),
+			Control:   utils.StringToUint(dstControlPort),
+			Heartbeat: utils.StringToUint(dstHeartbeatPort),
 		},
 	}
 	workingDir, err := os.Getwd()
@@ -73,7 +75,7 @@ func main() {
 	}
 	repoDir := filepath.Join(workingDir, "jupyter_repo")
 	opts := []session.Option{session.WithRepositoryDir(repoDir)}
-	session, err := session.New(listeningMetadata, destinationMetadata, opts...)
+	session, err := session.New(srcMetadata, dstMetadata, opts...)
 	if err != nil {
 		fatal(fmt.Errorf("create session: %w", err))
 	}
@@ -82,10 +84,18 @@ func main() {
 		fatal(fmt.Errorf("start session: %w", err))
 	}
 
-	if err := session.End(); err != nil {
-		fatal(fmt.Errorf("end session: %w", err))
-	}
+	c := make(chan os.Signal)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		if err := session.Finish(); err != nil {
+			fatal(fmt.Errorf("end session: %w", err))
+		}
+		utils.Log("Exiting...\n")
+		os.Exit(0)
+	}()
 
-	utils.Log("Exiting...\n")
-	os.Exit(0)
+	for {
+
+	}
 }

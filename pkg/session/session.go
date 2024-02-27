@@ -21,8 +21,8 @@ type state uint
 
 const (
 	stateNew state = iota + 1
-	stateRecording
-	stateEnded
+	stateStarted
+	stateFinished
 )
 
 // See https://jupyter-client.readthedocs.io/en/stable/messaging.html
@@ -40,25 +40,31 @@ type NetworkMetadata struct {
 }
 
 type Session struct {
-	listeningMetadata   NetworkMetadata
-	destinationMetadata NetworkMetadata
-	state               state
-	repoClient          repository.Client
-	repoDir             string
+	srcMetadata NetworkMetadata
+	dstMetadata NetworkMetadata
+	state       state
+	repoClient  repository.Client
+	repoDir     string
+	proxy       *proxy
 }
 
 type Option func(*Session) error
 
-func New(listeningMeta, destinationMeta NetworkMetadata, options ...Option) (*Session, error) {
+// TODO: add a logger interface
+func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) {
 	// If https://go.googlesource.com/proposal/+/master/design/draft-iofs.md is ever implemented and merged,
 	// we'll update the API to take an fs interface.
 
-	// Create a directory to store the repo.
+	proxy, err := proxyNew(srcMeta, dstMeta)
+	if err != nil {
+		return nil, err
+	}
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
 	session := Session{
-		listeningMetadata:   listeningMeta,
-		destinationMetadata: destinationMeta,
-		state:               stateNew,
+		srcMetadata: srcMeta,
+		dstMetadata: dstMeta,
+		state:       stateNew,
+		proxy:       proxy,
 	}
 
 	// Set optional parameters.
@@ -84,16 +90,20 @@ func (s *Session) Start() error {
 	if s.state != stateNew {
 		return fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
 	}
-	// create the repoDir
-	// TODO: Start listening
+	if err := s.proxy.Start(); err != nil {
+		return err
+	}
 	// Update the session state.
-	s.state = stateRecording
+	s.state = stateStarted
 	return nil
 }
 
-func (s *Session) End() error {
-	if s.state == stateEnded {
+func (s *Session) Finish() error {
+	if s.state == stateFinished {
 		return fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
+	}
+	if err := s.proxy.Finish(); err != nil {
+		return err
 	}
 	// TODO: Use repo to save the information
 	// TODO: generate provenance
