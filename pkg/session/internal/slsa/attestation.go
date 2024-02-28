@@ -42,14 +42,14 @@ type BuildMetadata struct {
 	FinishedOn   string `json:"finishedOn,omitempty"`
 }
 
-type predicate struct {
+type Predicate struct {
 	BuildDefinition BuildDefinition `json:"buildDefinition"`
 	RunDetails      RunDetails      `json:"runDetails"`
 }
 
 type attestation struct {
 	Header
-	Predicate predicate `json:"predicate"`
+	Predicate Predicate `json:"predicate"`
 }
 
 const (

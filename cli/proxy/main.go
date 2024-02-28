@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
+	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/logger"
+	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/repository"
 	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/utils"
 	"github.com/laurentsimon/jupyter-lineage/pkg/session"
 )
@@ -69,17 +70,22 @@ func main() {
 			Heartbeat: utils.StringToUint(dstHeartbeatPort),
 		},
 	}
-	workingDir, err := os.Getwd()
-	if err != nil {
-		fatal(fmt.Errorf("get working directory: %w", err))
-	}
-	repoDir := filepath.Join(workingDir, "jupyter_repo")
-	opts := []session.Option{session.WithRepositoryDir(repoDir)}
-	session, err := session.New(srcMetadata, dstMetadata, opts...)
+
+	// Create our logger.
+	logger := logger.Logger{}
+	// Create repo client.
+	repoClient, err := repository.New(logger)
 	if err != nil {
 		fatal(fmt.Errorf("create session: %w", err))
 	}
-
+	// Create a new session.
+	session, err := session.New(srcMetadata, dstMetadata,
+		session.WithLogger(logger),
+		session.WithRepositoryClient(repoClient))
+	if err != nil {
+		fatal(fmt.Errorf("create session: %w", err))
+	}
+	// Start the session.
 	if err := session.Start(); err != nil {
 		fatal(fmt.Errorf("start session: %w", err))
 	}

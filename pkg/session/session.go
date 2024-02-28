@@ -2,20 +2,14 @@ package session
 
 import (
 	"fmt"
-	"io"
-	"os"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/errs"
+	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/repository"
 	"github.com/laurentsimon/jupyter-lineage/pkg/session/internal/git"
+	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/session/internal/logger"
+	"github.com/laurentsimon/jupyter-lineage/pkg/session/internal/proxy"
 )
-
-// type Direction uint
-
-// const (
-// 	Ingress Direction = 1 << iota
-// 	Egress
-// )
 
 type state uint
 
@@ -44,29 +38,19 @@ type Session struct {
 	dstMetadata NetworkMetadata
 	state       state
 	repoClient  repository.Client
-	repoDir     string
-	proxy       *proxy
-	logger      Logger
+	proxy       *proxy.Proxy
+	logger      logger.Logger
 }
 
 type Option func(*Session) error
 
-type Logger interface {
-	Fatalf(string, ...any)
-	Errorf(string, ...any)
-	Warnf(string, ...any)
-	Infof(string, ...any)
-	Debugf(string, ...any)
-}
-
-// TODO: add a logger interface
 func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) {
 	// If https://go.googlesource.com/proposal/+/master/design/draft-iofs.md is ever implemented and merged,
 	// we'll update the API to take an fs interface.
-	addressBinding := []addressBinding{
+	addressBinding := []proxy.AddressBinding{
 		{
-			name: "shell",
-			src:  address(srcMeta.IP, srcMeta.Ports.Shell),
+			Name: "shell",
+			Src:  address(srcMeta.IP, srcMeta.Ports.Shell),
 		},
 	}
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
@@ -87,16 +71,12 @@ func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) 
 	if err := session.setDefaultLogger(); err != nil {
 		return nil, err
 	}
-	// Create the repo directory.
-	if err := session.setDefaultRepoDir(); err != nil {
-		return nil, err
-	}
 	// Set repo client to our default git implementation is not set by the caller.
 	if err := session.setDefaultRepoClient(); err != nil {
 		return nil, err
 	}
 	// Set the proxy last, since we need to have the logger setup.
-	proxy, err := proxyNew(addressBinding, session.logger)
+	proxy, err := proxy.New(addressBinding, session.logger, session.repoClient)
 	if err != nil {
 		return nil, err
 	}
@@ -112,6 +92,12 @@ func (s *Session) Start() error {
 	if s.state != stateNew {
 		return fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
 	}
+
+	if err := s.repoClient.Open(); err != nil {
+		return err
+	}
+
+	// Start proxy last.
 	if err := s.proxy.Start(); err != nil {
 		return err
 	}
@@ -121,6 +107,7 @@ func (s *Session) Start() error {
 }
 
 func (s *Session) Finish() error {
+	// TODO: don't return early on error, innstead try to clean up as much as we can.
 	if s.state == stateFinished {
 		return fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
 	}
@@ -129,7 +116,9 @@ func (s *Session) Finish() error {
 	}
 	// TODO: Use repo to save the information
 	// TODO: generate provenance
-	// err := os.RemoveAll(s.repoDir)
+	if err := s.repoClient.Close(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -137,7 +126,7 @@ func (s *Session) setDefaultLogger() error {
 	if s.logger != nil {
 		return nil
 	}
-	s.logger = log{}
+	s.logger = logimpl.Logger{}
 	return nil
 }
 
@@ -154,49 +143,14 @@ func (s *Session) setDefaultRepoClient() error {
 	return nil
 }
 
-func (s *Session) setDefaultRepoDir() error {
-	if s.repoDir != "" {
-		return nil
-	}
-	repoDir, err := os.MkdirTemp("", "jupyter_repo")
-	if err != nil {
-		return fmt.Errorf("create repo dir: %w", err)
-	}
-	s.repoDir = repoDir
-
-	return nil
-}
-
-func WithLogger(l Logger) Option {
+func WithLogger(l logger.Logger) Option {
 	return func(s *Session) error {
 		return s.setLogger(l)
 	}
 }
 
-func (s *Session) setLogger(l Logger) error {
+func (s *Session) setLogger(l logger.Logger) error {
 	s.logger = l
-	return nil
-}
-
-func WithRepositoryDir(dir string) Option {
-	return func(s *Session) error {
-		return s.setRepositoryDir(dir)
-	}
-}
-
-func (s *Session) setRepositoryDir(dir string) error {
-	err := os.MkdirAll(dir, os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("create user repo dir: %w", err)
-	}
-	isEmpty, err := isEmptyDir(dir)
-	if err != nil {
-		return fmt.Errorf("is empty dir: %w", err)
-	}
-	if !isEmpty {
-		return fmt.Errorf("directory %q not clean", dir)
-	}
-	s.repoDir = dir
 	return nil
 }
 
@@ -209,20 +163,6 @@ func WithRepositoryClient(repoClient repository.Client) Option {
 func (s *Session) setRepositoryClient(repoClient repository.Client) error {
 	s.repoClient = repoClient
 	return nil
-}
-
-func isEmptyDir(dir string) (bool, error) {
-	f, err := os.Open(dir)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-
-	_, err = f.Readdirnames(1) // Or f.Readdir(1)
-	if err == io.EOF {
-		return true, nil
-	}
-	return false, err // Either not empty or error, suits both cases
 }
 
 // TODO: HMAC keys

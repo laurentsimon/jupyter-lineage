@@ -1,4 +1,4 @@
-package session
+package proxy
 
 import (
 	"context"
@@ -6,26 +6,31 @@ import (
 	"net"
 	"strings"
 	"sync"
+
+	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
+	"github.com/laurentsimon/jupyter-lineage/pkg/repository"
+	"github.com/laurentsimon/jupyter-lineage/pkg/session/internal/slsa"
 )
 
 // TODO: move this file to internal
 
-type addressBinding struct {
-	name string
-	src  string
-	dst  string
+type AddressBinding struct {
+	Name string
+	Src  string
+	Dst  string
 }
 
-type proxy struct {
-	bindings []addressBinding
+type Proxy struct {
+	bindings []AddressBinding
 	// NOTE: see https://shantanubansal.medium.com/how-to-terminate-goroutines-in-go-effective-methods-and-examples-f796dcede512
 	// on ways to terminate a g routine.
 	context   context.Context
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
 	listeners []net.Listener
-	logger    Logger
-	// TODO: forwarders
+	//forwarders []net.Conn
+	logger     logger.Logger
+	repoClient repository.Client
 }
 
 type setNoDelayer interface {
@@ -36,20 +41,21 @@ type closer interface {
 	Close() error
 }
 
-func proxyNew(bindings []addressBinding, logger Logger) (*proxy, error) {
+func New(bindings []AddressBinding, logger logger.Logger, repoClient repository.Client) (*Proxy, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &proxy{
-		logger:    logger,
-		bindings:  bindings, // TODO: Make a copy.
-		context:   ctx,
-		cancel:    cancel,
-		listeners: make([]net.Listener, len(bindings)),
+	return &Proxy{
+		logger:     logger,
+		repoClient: repoClient,
+		bindings:   bindings, // TODO: Make a copy.
+		context:    ctx,
+		cancel:     cancel,
+		listeners:  make([]net.Listener, len(bindings)),
 	}, nil
 }
 
 // See https://okanexe.medium.com/the-complete-guide-to-tcp-ip-connections-in-golang-1216dae27b5a
 // https://coderwall.com/p/wohavg/creating-a-simple-tcp-server-in-go
-func (p *proxy) Start() error {
+func (p *Proxy) Start() error {
 	var e error
 	// Start all the listeners and forwarders.
 	for i, _ := range p.bindings {
@@ -58,21 +64,21 @@ func (p *proxy) Start() error {
 		err := make(chan error, 1)
 		go func() {
 			defer p.wg.Done()
-			listenOnPort(p.context, *binding, &p.listeners[i], p.logger, err)
+			listen(p.context, *binding, &p.listeners[i], p.logger, p.repoClient, err)
 		}()
 		e = <-err
 		// If there was an error starting, finish immediatly.
 		if e != nil {
-			p.logger.Errorf("start %q binding: %v", binding.name, e)
+			p.logger.Errorf("start %q binding: %v", binding.Name, e)
 			p.Finish()
 			break
 		}
-		p.logger.Infof("binding %q started successfully", binding.name)
+		p.logger.Infof("binding %q started successfully", binding.Name)
 	}
 	return e
 }
 
-func (p *proxy) Finish() error {
+func (p *Proxy) Finish() error {
 	// Cancel all routines.
 	p.cancel()
 
@@ -87,7 +93,7 @@ func (p *proxy) Finish() error {
 	for i, _ := range p.bindings {
 		binding := &p.bindings[i]
 		listener := &p.listeners[i]
-		close(*listener, binding.name, p.logger)
+		close(*listener, binding.Name, p.logger)
 		// TODO: close forwarders.
 	}
 
@@ -97,9 +103,10 @@ func (p *proxy) Finish() error {
 }
 
 // TODO: channel for error
-func listenOnPort(ctx context.Context, binding addressBinding, listener *net.Listener, logger Logger, errRet chan error) {
+func listen(ctx context.Context, binding AddressBinding, listener *net.Listener, logger logger.Logger,
+	repoClient repository.Client, errRet chan error) {
 	// Start listening.
-	listenConn, err := net.Listen("tcp", binding.src)
+	listenConn, err := net.Listen("tcp", binding.Src)
 	if err != nil {
 		errRet <- fmt.Errorf("listen: %w", err)
 		return
@@ -118,7 +125,7 @@ L:
 	for !done {
 		select {
 		case <-ctx.Done():
-			logger.Infof("exiting listener for %q", binding.name)
+			logger.Infof("exiting listener for %q", binding.Name)
 			done = false
 			break L
 		default:
@@ -129,7 +136,7 @@ L:
 				// and log info when closing properly if caller set to close.
 				// TODO: use log iterface from caller
 				//log.Fatal(err)
-				logger.Errorf("accept %q: %v", binding.name, err)
+				logger.Errorf("accept %q: %v", binding.Name, err)
 				continue
 			}
 			if conn, ok := clientConn.(setNoDelayer); ok {
@@ -144,16 +151,16 @@ L:
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				handleClient(logger, clientConn, binding.name)
+				handleClient(logger, repoClient, clientConn, binding.Name)
 			}()
 		}
 	}
-	closeClientConns(logger, clientConns, binding.name)
+	closeClientConns(logger, clientConns, binding.Name)
 	wg.Wait()
 
 }
 
-func close(closer closer, name string, logger Logger) {
+func close(closer closer, name string, logger logger.Logger) {
 	if closer == nil {
 		return
 	}
@@ -162,7 +169,7 @@ func close(closer closer, name string, logger Logger) {
 	}
 }
 
-func closeClientConns(logger Logger, clientConns []net.Conn, name string) {
+func closeClientConns(logger logger.Logger, clientConns []net.Conn, name string) {
 	for i, _ := range clientConns {
 		logger.Debugf("closing client connection for %q...", name)
 		conn := &clientConns[i]
@@ -182,20 +189,32 @@ func isClosedConnError(err error) bool {
 }
 
 // TODO: keep track of errors
-func handleClient(logger Logger, clientConn net.Conn, name string) {
+func handleClient(logger logger.Logger, repoClient repository.Client, clientConn net.Conn, name string) {
 	defer clientConn.Close()
 	// Create a buffer to read data into
 	buffer := make([]byte, 2048)
-
+	counter := uint64(0)
 	for {
 		// Read data from the client.
 		n, err := clientConn.Read(buffer)
 		if err != nil {
+			// NOTE: closed connection will get an error and return.
 			logger.Errorf("read error on %q: %v", name, err)
 			return
 		}
 
 		// Process and use the data (here, we'll just print it)
 		logger.Debugf("read %q: %q", name, buffer[:n])
+		fn := fmt.Sprintf("%v/%016x", name, counter)
+		c, err := slsa.Format(buffer[:n])
+		if err != nil {
+			logger.Fatalf("slsa format %q: []%v: %v", fn, buffer[:n], err)
+		}
+		if err := repoClient.CreateFile(fn, c); err != nil {
+			// TODO: handle gracefully? Need to return and set an err
+			// for the caller to check.
+			logger.Fatalf("create file %q: %v", fn, err)
+		}
+		counter += 1
 	}
 }

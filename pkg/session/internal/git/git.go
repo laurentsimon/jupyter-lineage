@@ -4,33 +4,47 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/laurentsimon/jupyter-lineage/pkg/errs"
 	"github.com/laurentsimon/jupyter-lineage/pkg/repository"
 )
 
-type Client struct {
+type Git struct {
 	dir string
 }
 
-func New() (*Client, error) {
-	return &Client{}, nil
+func New() (*Git, error) {
+	return &Git{}, nil
 }
 
-func (c *Client) Init(dir string) error {
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		return fmt.Errorf("%w: %w", errs.ErrorInvalid, err)
+func (g *Git) Open() error {
+	dir, err := os.MkdirTemp("", "jupyter_repo")
+	if err != nil {
+		return fmt.Errorf("create repo dir: %w", err)
 	}
-	c.dir = dir
+	g.dir = dir
 	return nil
 }
 
-func (c *Client) Commit(paths []string, message string) (repository.Digest, error) {
+func (g *Git) ID() string {
+	return g.dir
+}
+
+func (g *Git) CreateFile(path string, content []byte) error {
+	// TODO: verify ID
+	return nil
+}
+
+func (g *Git) AppendFile(path string, content []byte) error {
+	// TODO: verify ID
+	return nil
+}
+
+func (g *Git) Digest() (repository.Digest, error) {
 	return repository.Digest{
 			"sha1": "sha1-value"},
 		nil
 }
 
-func (c *Client) Close() error {
-	c.dir = ""
+func (g *Git) Close() error {
+	g.dir = ""
 	return nil
 }

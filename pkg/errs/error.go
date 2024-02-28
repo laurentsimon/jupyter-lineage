@@ -4,5 +4,5 @@ import "errors"
 
 var (
 	ErrorInvalid = errors.New("invalid")
-	ErrorDirty   = errors.New("dirty")
+	ErrorUnknown = errors.New("unknown")
 )
