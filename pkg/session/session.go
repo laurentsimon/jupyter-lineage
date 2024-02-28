@@ -46,25 +46,34 @@ type Session struct {
 	repoClient  repository.Client
 	repoDir     string
 	proxy       *proxy
+	logger      Logger
 }
 
 type Option func(*Session) error
+
+type Logger interface {
+	Fatalf(string, ...any)
+	Errorf(string, ...any)
+	Warnf(string, ...any)
+	Infof(string, ...any)
+	Debugf(string, ...any)
+}
 
 // TODO: add a logger interface
 func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) {
 	// If https://go.googlesource.com/proposal/+/master/design/draft-iofs.md is ever implemented and merged,
 	// we'll update the API to take an fs interface.
-
-	proxy, err := proxyNew(srcMeta, dstMeta)
-	if err != nil {
-		return nil, err
+	addressBinding := []addressBinding{
+		{
+			name: "shell",
+			src:  address(srcMeta.IP, srcMeta.Ports.Shell),
+		},
 	}
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
 	session := Session{
 		srcMetadata: srcMeta,
 		dstMetadata: dstMeta,
 		state:       stateNew,
-		proxy:       proxy,
 	}
 
 	// Set optional parameters.
@@ -74,7 +83,10 @@ func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) 
 			return nil, err
 		}
 	}
-
+	// Set the default logger
+	if err := session.setDefaultLogger(); err != nil {
+		return nil, err
+	}
 	// Create the repo directory.
 	if err := session.setDefaultRepoDir(); err != nil {
 		return nil, err
@@ -83,7 +95,17 @@ func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) 
 	if err := session.setDefaultRepoClient(); err != nil {
 		return nil, err
 	}
+	// Set the proxy last, since we need to have the logger setup.
+	proxy, err := proxyNew(addressBinding, session.logger)
+	if err != nil {
+		return nil, err
+	}
+	session.proxy = proxy
 	return &session, nil
+}
+
+func address(ip string, port uint) string {
+	return fmt.Sprintf("%s:%d", ip, port)
 }
 
 func (s *Session) Start() error {
@@ -111,6 +133,14 @@ func (s *Session) Finish() error {
 	return nil
 }
 
+func (s *Session) setDefaultLogger() error {
+	if s.logger != nil {
+		return nil
+	}
+	s.logger = log{}
+	return nil
+}
+
 func (s *Session) setDefaultRepoClient() error {
 	if s.repoClient != nil {
 		return nil
@@ -134,6 +164,17 @@ func (s *Session) setDefaultRepoDir() error {
 	}
 	s.repoDir = repoDir
 
+	return nil
+}
+
+func WithLogger(l Logger) Option {
+	return func(s *Session) error {
+		return s.setLogger(l)
+	}
+}
+
+func (s *Session) setLogger(l Logger) error {
+	s.logger = l
 	return nil
 }
 

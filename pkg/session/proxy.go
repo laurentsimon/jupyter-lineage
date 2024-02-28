@@ -3,70 +3,93 @@ package session
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"sync"
 )
 
+// TODO: move this file to internal
+
+type addressBinding struct {
+	name string
+	src  string
+	dst  string
+}
+
 type proxy struct {
-	srcMetadata NetworkMetadata
-	dstMetadata NetworkMetadata
+	bindings []addressBinding
 	// NOTE: see https://shantanubansal.medium.com/how-to-terminate-goroutines-in-go-effective-methods-and-examples-f796dcede512
 	// on ways to terminate a g routine.
-	context          context.Context
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
-	listenerMetadata listenerMetadata
+	context   context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	listeners []net.Listener
+	logger    Logger
+	// TODO: forwarders
 }
 
-type listenerMetadata struct {
-	shell     net.Listener
-	stdin     net.Listener
-	iopub     net.Listener
-	control   net.Listener
-	heartbeat net.Listener
+type setNoDelayer interface {
+	SetNoDelay(bool) error
 }
 
-func proxyNew(srcMetadata, dstMetadata NetworkMetadata) (*proxy, error) {
+type closer interface {
+	Close() error
+}
+
+func proxyNew(bindings []addressBinding, logger Logger) (*proxy, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &proxy{
-		srcMetadata: srcMetadata,
-		dstMetadata: dstMetadata,
-		context:     ctx,
-		cancel:      cancel,
+		logger:    logger,
+		bindings:  bindings, // TODO: Make a copy.
+		context:   ctx,
+		cancel:    cancel,
+		listeners: make([]net.Listener, len(bindings)),
 	}, nil
 }
 
 // See https://okanexe.medium.com/the-complete-guide-to-tcp-ip-connections-in-golang-1216dae27b5a
 // https://coderwall.com/p/wohavg/creating-a-simple-tcp-server-in-go
 func (p *proxy) Start() error {
-	// TODO: use a loop for all ports
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		listenOnPort(p.context, p.srcMetadata.IP, p.srcMetadata.Ports.Shell, "shell", &p.listenerMetadata.shell)
-	}()
-	// TODO: start other listening routines.
-	return nil
+	var e error
+	// Start all the listeners and forwarders.
+	for i, _ := range p.bindings {
+		binding := &p.bindings[i]
+		p.wg.Add(1)
+		err := make(chan error, 1)
+		go func() {
+			defer p.wg.Done()
+			listenOnPort(p.context, *binding, &p.listeners[i], p.logger, err)
+		}()
+		e = <-err
+		// If there was an error starting, finish immediatly.
+		if e != nil {
+			p.logger.Errorf("start %q binding: %v", binding.name, e)
+			p.Finish()
+			break
+		}
+		p.logger.Infof("binding %q started successfully", binding.name)
+	}
+	return e
 }
 
 func (p *proxy) Finish() error {
 	// Cancel all routines.
 	p.cancel()
 
-	// Close all listening connections. Tis is needed if the go routines
+	// THis is needed if the go routines
 	// are waiting on a listening socket.
 	// TODO: race condition need to be handled because we currently
 	// create the listening connection in a go routine. We must either:
 	// - create it in main thread
 	// - use a mutex
-	if p.listenerMetadata.shell != nil {
-		if err := p.listenerMetadata.shell.Close(); err != nil && !isClosedConnError(err) {
-			fmt.Printf("close shell error: %v\n", err)
-		}
+	// May not be required to do yet.
+	// Warning: race when closing because start failed
+	for i, _ := range p.bindings {
+		binding := &p.bindings[i]
+		listener := &p.listeners[i]
+		close(*listener, binding.name, p.logger)
+		// TODO: close forwarders.
 	}
-	// TODO: close all outgoing connections.
 
 	// Wait for routines to exit.
 	p.wg.Wait()
@@ -74,13 +97,15 @@ func (p *proxy) Finish() error {
 }
 
 // TODO: channel for error
-func listenOnPort(ctx context.Context, ip string, port uint, name string, listener *net.Listener) {
+func listenOnPort(ctx context.Context, binding addressBinding, listener *net.Listener, logger Logger, errRet chan error) {
 	// Start listening.
-	listenConn, err := net.Listen("tcp", address(ip, port))
+	listenConn, err := net.Listen("tcp", binding.src)
 	if err != nil {
-		log.Fatal(fmt.Errorf("listen: %w", err))
-		// TODO: communicate error bac to caller
+		errRet <- fmt.Errorf("listen: %w", err)
+		return
 	}
+	// Communicate to caller thhat we started successfully.
+	errRet <- nil
 	// Auto close on function exit.
 	defer listenConn.Close()
 	(*listener) = listenConn
@@ -93,7 +118,7 @@ L:
 	for !done {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("Exiting listener for %q\n", name)
+			logger.Infof("exiting listener for %q", binding.name)
 			done = false
 			break L
 		default:
@@ -104,22 +129,45 @@ L:
 				// and log info when closing properly if caller set to close.
 				// TODO: use log iterface from caller
 				//log.Fatal(err)
-				fmt.Printf("accept %q: %v\n", name, err)
+				logger.Errorf("accept %q: %v", binding.name, err)
 				continue
 			}
-			fmt.Printf("Connection from %q\n", clientConn.RemoteAddr().String())
+			if conn, ok := clientConn.(setNoDelayer); ok {
+				// https://pkg.go.dev/net#TCPConn.SetNoDelay
+				logger.Debugf("enable Nagle's algo on %q", clientConn.RemoteAddr().String())
+				conn.SetNoDelay(true)
+			}
+			logger.Infof("connection from %q", clientConn.RemoteAddr().String())
 			// Keep track of the connections.
 			clientConns = append(clientConns, clientConn)
 			// Handle the connection.
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				handleClient(clientConn, name)
+				handleClient(logger, clientConn, binding.name)
 			}()
 		}
 	}
-	closeClientConns(clientConns, name)
+	closeClientConns(logger, clientConns, binding.name)
 	wg.Wait()
+
+}
+
+func close(closer closer, name string, logger Logger) {
+	if closer == nil {
+		return
+	}
+	if err := closer.Close(); err != nil && !isClosedConnError(err) {
+		logger.Errorf("close for %T %q: %v", closer, name, err)
+	}
+}
+
+func closeClientConns(logger Logger, clientConns []net.Conn, name string) {
+	for i, _ := range clientConns {
+		logger.Debugf("closing client connection for %q...", name)
+		conn := &clientConns[i]
+		close(*conn, name, logger)
+	}
 }
 
 func isClosedConnError(err error) bool {
@@ -133,18 +181,8 @@ func isClosedConnError(err error) bool {
 	return false
 }
 
-func closeClientConns(clientConns []net.Conn, name string) {
-	for i, _ := range clientConns {
-		fmt.Printf("Closing client connection for %q...\n", name)
-		conn := &clientConns[i]
-		if err := (*conn).Close(); err != nil && !isClosedConnError(err) {
-			fmt.Printf("error close client connection for %q: %v\n", name, err)
-		}
-	}
-}
-
 // TODO: keep track of errors
-func handleClient(clientConn net.Conn, name string) {
+func handleClient(logger Logger, clientConn net.Conn, name string) {
 	defer clientConn.Close()
 	// Create a buffer to read data into
 	buffer := make([]byte, 2048)
@@ -153,15 +191,11 @@ func handleClient(clientConn net.Conn, name string) {
 		// Read data from the client.
 		n, err := clientConn.Read(buffer)
 		if err != nil {
-			fmt.Printf("read error on %q: %v\n", name, err)
+			logger.Errorf("read error on %q: %v", name, err)
 			return
 		}
 
 		// Process and use the data (here, we'll just print it)
-		fmt.Printf("read %q: %q\n", name, buffer[:n])
+		logger.Debugf("read %q: %q", name, buffer[:n])
 	}
-}
-
-func address(ip string, port uint) string {
-	return fmt.Sprintf("%s:%d", ip, port)
 }
