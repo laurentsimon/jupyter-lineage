@@ -51,6 +51,7 @@ func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) 
 		{
 			Name: "shell",
 			Src:  address(srcMeta.IP, srcMeta.Ports.Shell),
+			Dst:  address(dstMeta.IP, dstMeta.Ports.Shell),
 		},
 	}
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
