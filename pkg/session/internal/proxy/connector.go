@@ -8,20 +8,25 @@ import (
 	"time"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
+	"github.com/laurentsimon/jupyter-lineage/pkg/repository"
+	"github.com/laurentsimon/jupyter-lineage/pkg/session/internal/conduit"
 )
 
 func connect(ctx context.Context, binding AddressBinding, logger logger.Logger,
-	startErr chan error) {
+	repoClient repository.Client, conduit *conduit.Conduit, startErr chan error) {
 	// srcToDstData, dstToSrcData chan []byte, startErr, srcToDstErr, dstToSrcErr chan error) {
 	// TODO: like listener. hadleClient just nees to be changed with a read()
 	var wg sync.WaitGroup
 	var done bool
 	var err error
 	var conn net.Conn
+	var counter uint64
 	quit := make(chan struct{})
+	try := 1
+	timer := time.NewTimer(0 * time.Second)
+	<-timer.C
 
-	// Start reading.
-	conn, err = read(&wg, logger, binding, quit)
+	conn, err = read(&wg, logger, binding, quit, conduit)
 	startErr <- err
 	if err != nil {
 		return
@@ -33,66 +38,66 @@ L:
 			logger.Infof("connector exit for %q", binding.Name)
 			done = true
 			break L
+		case data := <-conduit.Dst():
+			// TDO: may need to split packets here to follow ZQM protocol.
+			logger.Debugf("connector %q recv to forward: %q", binding.Name, data)
+			fn := fmt.Sprintf("%s/%016x_%s", binding.Name, counter, time.Now().UTC().Format(time.RFC3339))
+
+			if conn == nil {
+				// TODO: gracefully
+				logger.Fatalf("connector write %q: no connector", binding.Name)
+			}
+			// Send data.
+			if err := connWrite(conn, data); err != nil {
+				// TODO: gracefully
+				logger.Fatalf("connector write %q: %v", binding.Name, err)
+			}
+			logger.Debugf("connector %q forwarded data: %q", binding.Name, data)
+			// c, err := slsa.Format(buffer[:n])
+			// if err != nil {
+			// 	logger.Fatalf("slsa format %q: []%v: %v", fn, buffer[:n], err)
+			// }
+			if err := repoClient.CreateFile(fn, data); err != nil {
+				// TODO: handle gracefully? Need to return and set an err
+				// for the caller to check.
+				logger.Fatalf("create file %q: %v", fn, err)
+			}
+			counter += 1
+
+		case <-timer.C:
+			logger.Infof("connector re-start attempt %d for %q", try, binding.Name)
+			// TODO: add to manager, 1 mutex per direction
+			conn, err = read(&wg, logger, binding, quit, conduit)
+			// No error, done.
+			if err == nil {
+				logger.Infof("connector restarted %q", binding.Name)
+				try = 1
+				continue
+			}
+			// Error: retry.
+			logger.Warnf("connector restart %q due to error: %v", binding.Name, err)
+			try += 1
+			if try >= 10 {
+				done = true
+				logger.Infof("connector exit for %q due to error: %v", binding.Name, err)
+				break L
+			}
+			timer = time.NewTimer(time.Duration(try) * time.Second)
+			logger.Infof("connector re-start attempt %d for %q in %ds", try, binding.Name, try)
 		case <-quit:
 			// Re-start reading.
-			// todo: use non-blocking timer
-			try := 0
-			for {
-				logger.Infof("connector re-start attempt %d for %q", try, binding.Name)
-				conn, err = read(&wg, logger, binding, quit)
-				// No error, done.
-				if err == nil {
-					break
-				}
-				// Error: retry.
-				logger.Warnf("connector restart %q due to error: %v", binding.Name, err)
-				try += 1
-				if try >= 10 {
-					done = true
-					logger.Infof("connector exit for %q due to error: %v", binding.Name, err)
-					break L
-				}
-				time.Sleep(1 * time.Second)
-			}
-
-			logger.Infof("connector restarted %q", binding.Name)
+			timer = time.NewTimer(time.Duration(try) * time.Second)
+			logger.Infof("connector re-start attempt %d for %q in %ds", try, binding.Name, try)
 		default:
 			// TODO: sleep
 			continue
 		}
-		// TODO: read
-		// case <-srcToDstQuit:
-		// 	logger.Infof("exiting connector for %q (%q - %q) due to write channel close", binding.Name,
-		// 		conn.LocalAddr().String(), conn.RemoteAddr().String())
-		// 	return
-		// case data, ok := <-srcToDstData:
-		// 	if !ok {
-		// 		logger.Infof("exiting connector for %q (%q - %q) due to write channel close (2)", binding.Name,
-		// 			conn.LocalAddr().String(), conn.RemoteAddr().String())
-		// 		//srcToDstErr <- fmt.Errorf("write channel %q closed")
-		// 		return
-		// 	}
-		// 	logger.Debugf("TRY write for %q: %q", binding.Name, data)
-		// 	n, err := conn.Write(data)
-		// 	if n != len(data) {
-		// 		logger.Errorf("write for %q: send %d bytes but wrote %d bytes", binding.Name, len(data), n)
-		// 		srcToDstErr <- err
-		// 		return
-		// 	}
-		// 	if err != nil {
-		// 		logger.Errorf("write for %q: %q", binding.Name, data)
-		// 		srcToDstErr <- err
-		// 		return
-		// 	}
-		// 	logger.Debugf("write for %q: %v", binding.Name, data)
-		// 	srcToDstErr <- nil
-		// }
 	}
 	cclose(conn, binding.Name, logger)
 	wg.Wait()
 }
 
-func read(wg *sync.WaitGroup, logger logger.Logger, binding AddressBinding, quit chan struct{}) (net.Conn, error) {
+func read(wg *sync.WaitGroup, logger logger.Logger, binding AddressBinding, quit chan struct{}, conduit *conduit.Conduit) (net.Conn, error) {
 	conn, err := net.Dial("tcp", binding.Dst)
 	if err != nil {
 		return nil, fmt.Errorf("connect: %w", err)
@@ -111,13 +116,13 @@ func read(wg *sync.WaitGroup, logger logger.Logger, binding AddressBinding, quit
 		defer wg.Done()
 		// NOTE: no need to synchronize access to counter because there's always at most
 		// one client running.
-		go handleRead(logger, quit, conn, binding.Name)
+		go handleRead(logger, quit, conn, conduit, binding.Name)
 		/*srcToDstData, dstToSrcData, srcToDstQuit, dstToSrcQuit, srcToDstErr, dstToSrcErr*/
 	}()
 	return conn, nil
 }
 
-func handleRead(logger logger.Logger, quit chan struct{}, conn net.Conn, name string) {
+func handleRead(logger logger.Logger, quit chan struct{}, conn net.Conn, conduit *conduit.Conduit, name string) {
 	defer conn.Close()
 	buffer := make([]byte, 2048)
 	for {
@@ -128,6 +133,8 @@ func handleRead(logger logger.Logger, quit chan struct{}, conn net.Conn, name st
 			break
 		}
 		logger.Debugf("connector recv %q: %q", name, buffer[:n])
+
+		conduit.Src() <- buffer[:n]
 	}
 	quit <- struct{}{}
 }

@@ -16,6 +16,8 @@ type setNoDelayer interface {
 	SetNoDelay(bool) error
 }
 
+// TODO: create class for connection.
+
 func setConnSettings(logger logger.Logger, conn net.Conn) error {
 	if c, ok := conn.(setNoDelayer); ok {
 		// https://pkg.go.dev/net#TCPConn.SetNoDelay
@@ -54,4 +56,15 @@ func closeConns(logger logger.Logger, conns []net.Conn, name string) {
 		conn := &conns[i]
 		cclose(*conn, name, logger)
 	}
+}
+
+func connWrite(conn net.Conn, data []byte) error {
+	_, err := conn.Write(data)
+	// if n != len(data) {
+	// 	return fmt.Errorf("conn write: %d bytes expected, %d bytes written", len(data), n)
+	// }
+	if err != nil {
+		return fmt.Errorf("conn write: %w", err)
+	}
+	return nil
 }

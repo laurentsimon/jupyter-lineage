@@ -6,6 +6,7 @@ import (
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/repository"
+	"github.com/laurentsimon/jupyter-lineage/pkg/session/internal/conduit"
 )
 
 // TODO: move this file to internal
@@ -46,17 +47,12 @@ func (p *Proxy) Start() error {
 	for i, _ := range p.bindings {
 		binding := &p.bindings[i]
 		startErr := make(chan error, 1)
-		// srcToDstData := make(chan []byte)
-		// srcToDstDataErr := make(chan error, 1)
-		// dstToSrcData := make(chan []byte)
-		// dstToSrcDataErr := make(chan error, 1)
-		// srcToDstQuit := make(chan struct{})
-		// dstToSrcQuit := make(chan struct{})
+		conduit := conduit.New()
 		// Connector.
 		p.wg.Add(1)
 		go func() {
 			defer p.wg.Done()
-			connect(p.context, *binding, p.logger, startErr)
+			connect(p.context, *binding, p.logger, p.repoClient, conduit, startErr)
 		}()
 		e = <-startErr
 		// If there was an error starting, finish immediatly.
@@ -73,7 +69,7 @@ func (p *Proxy) Start() error {
 			defer p.wg.Done()
 			// listen(p.context, *binding, &p.listeners[i], p.logger, p.repoClient,
 			// 	srcToDstData, dstToSrcData, srcToDstQuit, dstToSrcQuit, startErr, srcToDstDataErr, dstToSrcDataErr)
-			listen(p.context, *binding, p.logger, p.repoClient, startErr)
+			listen(p.context, *binding, p.logger, conduit, startErr)
 		}()
 		e = <-startErr
 		// If there was an error starting, finish immediatly.

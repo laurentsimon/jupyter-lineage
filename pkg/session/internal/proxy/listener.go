@@ -5,16 +5,20 @@ import (
 	"fmt"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
-	"github.com/laurentsimon/jupyter-lineage/pkg/repository"
+	"github.com/laurentsimon/jupyter-lineage/pkg/session/internal/conduit"
 )
+
+type shared struct {
+	mu    sync.Mutex
+	conns []net.Conn
+}
 
 // TODO: channel for error
 func listen(ctx context.Context, binding AddressBinding, logger logger.Logger,
-	repoClient repository.Client, //srcToDstData, dstToSrcData chan []byte, srcToDstQuit, dstToSrcQuit chan struct{},
-	startErr /*, srcToDstErr, dstToSrcErr*/ chan error) {
+	//srcToDstData, dstToSrcData chan []byte, srcToDstQuit, dstToSrcQuit chan struct{},
+	conduit *conduit.Conduit, startErr /*, srcToDstErr, dstToSrcErr*/ chan error) {
 	listenConn, err := net.Listen("tcp", binding.Src)
 	if err != nil {
 		startErr <- fmt.Errorf("listen: %w", err)
@@ -29,9 +33,10 @@ func listen(ctx context.Context, binding AddressBinding, logger logger.Logger,
 	// TODO: no delay https://github.com/jpillora/go-tcp-proxy/blob/master/proxy.go
 
 	var done bool
+	var share shared
 
 	// Start listening.
-	go accept(logger, listenConn, binding, repoClient)
+	go accept(logger, listenConn, binding, conduit, &share)
 
 L:
 	for !done {
@@ -40,18 +45,44 @@ L:
 			logger.Infof("exiting listener for %q", binding.Name)
 			done = false
 			break L
+		case data := <-conduit.Src():
+			logger.Debugf("listerner %q recv to forward: %q", binding.Name, data)
+			// Use any of the connections to send. Traverse backward because newr connections are
+			// at the back.
+			share.mu.Lock()
+			var err error
+			if len(share.conns) == 0 {
+				// TODO: gracefully. Need to cache data until
+				// a new connection is up.
+				logger.Fatalf("no client connected")
+			}
+			logger.Debugf("listener len conns: %d", len(share.conns))
+			index := len(share.conns) - 1
+			for index >= 0 {
+				conn := &(share.conns)[index]
+				if err = connWrite(*conn, data); err != nil {
+					logger.Debugf("listener write %q on conn %d: %v", binding.Name, index, err)
+					index -= 1
+					continue
+				}
+				logger.Debugf("listener %q forwarded data %q on conn %d", binding.Name, data, index)
+				break
+			}
+			share.mu.Unlock()
+			if err != nil {
+				logger.Fatalf("listener %q forwarded data %q failed: %v", binding.Name, data, err)
+			}
+
 		default:
 			continue // TODO sleep
 		}
 	}
 }
 
-func accept(logger logger.Logger, listener net.Listener, binding AddressBinding, repoClient repository.Client) {
+func accept(logger logger.Logger, listener net.Listener, binding AddressBinding, conduit *conduit.Conduit, share *shared) {
 	// Accept the connection.
 	logger.Infof("listening for %q", binding.Name)
 	var wg sync.WaitGroup
-	var conns []net.Conn
-	var shared sharedVariables
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -67,26 +98,31 @@ func accept(logger logger.Logger, listener net.Listener, binding AddressBinding,
 			logger.Errorf("connection settings %q: %v", binding.Name, err)
 			continue
 		}
+		// TODO: add to manager
+		// map[string] {toDst, toSrc channels + 2 mutexes to set the }
 		// Keep track of the connections.
-		conns = append(conns, conn)
+		share.mu.Lock()
+		share.conns = append(share.conns, conn)
+		share.mu.Unlock()
 		// Handle the connection.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			// NOTE: no need to synchronize access to counter because there's always at most
 			// one client running.
-			handleClient(logger, repoClient, conn, binding.Name, &shared)
+			handleClient(logger, conn, conduit, binding.Name)
 			/*srcToDstData, dstToSrcData, srcToDstQuit, dstToSrcQuit, srcToDstErr, dstToSrcErr*/
 		}()
 	}
 	// We need to close all connections that are waiting on read.
-	closeConns(logger, conns, binding.Name)
+	share.mu.Lock()
+	closeConns(logger, share.conns, binding.Name)
+	share.mu.Unlock()
 	wg.Wait()
 }
 
 // TODO: keep track of errors
-func handleClient(logger logger.Logger, repoClient repository.Client, clientConn net.Conn, name string,
-	shared *sharedVariables) {
+func handleClient(logger logger.Logger, clientConn net.Conn, conduit *conduit.Conduit, name string) {
 	/*, srcToDstData, dstToSrcData chan []byte, srcToDstQuit, dstToSrcQuit chan struct{},
 	srcToDstErr, dstToSrcErr chan error*/
 	defer clientConn.Close()
@@ -103,8 +139,11 @@ func handleClient(logger logger.Logger, repoClient repository.Client, clientConn
 			logger.Errorf("listener read on %q: %v", name, err)
 			break
 		}
-
+		// TODO: we need a full packet here
+		logger.Debugf("listener %q recv: %q", name, buffer[:n])
 		// Forward.
+		conduit.Dst() <- buffer[:n]
+
 		// srcToDstData <- buffer[:n]
 		// err = <-srcToDstErr
 		// if err != nil {
@@ -115,20 +154,6 @@ func handleClient(logger logger.Logger, repoClient repository.Client, clientConn
 		// 	break
 		// }
 
-		// Process and use the data (here, we'll just print it)
-		logger.Debugf("listener recv %q: %q", name, buffer[:n])
-		fn := fmt.Sprintf("%s/%016x_%s", name, shared.counter(), time.Now().UTC().Format(time.RFC3339))
-
-		// c, err := slsa.Format(buffer[:n])
-		// if err != nil {
-		// 	logger.Fatalf("slsa format %q: []%v: %v", fn, buffer[:n], err)
-		// }
-		if err := repoClient.CreateFile(fn, buffer[:n]); err != nil {
-			// TODO: handle gracefully? Need to return and set an err
-			// for the caller to check.
-			logger.Fatalf("create file %q: %v", fn, err)
-		}
-		shared.counterInc()
 	}
 	logger.Debugf("handleConn exit %q", name)
 	//srcToDstQuit <- struct{}{}
