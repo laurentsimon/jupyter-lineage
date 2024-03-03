@@ -1,10 +1,12 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/session/internal/conduit"
@@ -34,6 +36,9 @@ func listen(ctx context.Context, binding AddressBinding, logger logger.Logger,
 
 	var done bool
 	var share shared
+	cache := bytes.NewBuffer(nil)
+	timer := time.NewTimer(0 * time.Second)
+	<-timer.C
 
 	// Start listening.
 	go accept(logger, listenConn, binding, conduit, &share)
@@ -45,33 +50,85 @@ L:
 			logger.Infof("exiting listener for %q", binding.Name)
 			done = false
 			break L
-		case data := <-conduit.Src():
-			logger.Debugf("listerner %q recv to forward: %q", binding.Name, data)
-			// Use any of the connections to send. Traverse backward because newr connections are
-			// at the back.
+		case <-timer.C:
+			logger.Debugf("listener %q cache data to forward: %q", binding.Name, cache.Bytes())
 			share.mu.Lock()
-			var err error
-			if len(share.conns) == 0 {
-				// TODO: gracefully. Need to cache data until
-				// a new connection is up.
-				logger.Fatalf("no client connected")
-			}
 			logger.Debugf("listener len conns: %d", len(share.conns))
+			if len(share.conns) == 0 {
+				logger.Warnf("listener no client connected")
+				logger.Infof("listener %q caching data %q", binding.Name, cache.Bytes())
+				timer = time.NewTimer(2 * time.Second)
+				share.mu.Unlock()
+				continue
+			}
+			// timer = test(logger, cache, binding.Name, &share)
+			// if timer != nil {
+			// 	share.mu.Unlock()
+			// 	continue
+			// }
 			index := len(share.conns) - 1
 			for index >= 0 {
 				conn := &(share.conns)[index]
-				if err = connWrite(*conn, data); err != nil {
+				logger.Debugf("conn %p", *conn)
+				if err = connWrite(*conn, cache.Bytes()); err != nil {
 					logger.Debugf("listener write %q on conn %d: %v", binding.Name, index, err)
 					index -= 1
 					continue
 				}
-				logger.Debugf("listener %q forwarded data %q on conn %d", binding.Name, data, index)
+				logger.Debugf("listener %q forwarded data %q on conn %d", binding.Name, cache.Bytes(), index)
+				// The buffer may be the cache, and we want to be sure we only send data once.
+				cache.Reset()
 				break
 			}
 			share.mu.Unlock()
 			if err != nil {
-				logger.Fatalf("listener %q forwarded data %q failed: %v", binding.Name, data, err)
+				timer = time.NewTimer(2 * time.Second)
 			}
+			// if err != nil {
+			// 	logger.Fatalf("listener %q forwarded data %q failed: %v", binding.Name, cache.Bytes(), err)
+			// }
+
+		case data := <-conduit.Src():
+			logger.Debugf("listener %q recv to forward: %q", binding.Name, data)
+			// Use any of the connections to send. Traverse backward because newr connections are
+			// at the back.
+			_, err := cache.Write(data)
+			if err != nil {
+				logger.Fatalf("listener %q write: %v", binding.Name, cache.Bytes(), err)
+			}
+			share.mu.Lock()
+			//timer = forward(logger, cache, binding.Name, &share)
+			logger.Debugf("listener len conns: %d", len(share.conns))
+			if len(share.conns) == 0 {
+				logger.Warnf("listener no client connected")
+				logger.Infof("listener %q caching data %q", binding.Name, cache.Bytes())
+				timer = time.NewTimer(2 * time.Second)
+				share.mu.Unlock()
+				continue
+			}
+
+			index := len(share.conns) - 1
+			for index >= 0 {
+				conn := &(share.conns)[index]
+				logger.Debugf("conn %p", *conn)
+				if err = connWrite(*conn, cache.Bytes()); err != nil {
+					logger.Debugf("listener write %q on conn %d: %v", binding.Name, index, err)
+					index -= 1
+					continue
+				}
+				logger.Debugf("listener %q forwarded data %q on conn %d", binding.Name, cache.Bytes(), index)
+				// The buffer may be the cache, and we want to be sure we only send data once.
+				cache.Reset()
+				break
+			}
+			if err != nil {
+				timer = time.NewTimer(2 * time.Second)
+			}
+			share.mu.Unlock()
+
+			// if err != nil {
+			// 	logger.Fatalf("listener %q forwarded data %q failed: %v", binding.Name, cache.Bytes(), err)
+			// }
 
 		default:
 			continue // TODO sleep
@@ -79,11 +136,58 @@ L:
 	}
 }
 
+func forward(logger logger.Logger, data *bytes.Buffer, name string, share *shared) *time.Timer {
+	logger.Debugf("listener len conns: %d", len(share.conns))
+	if len(share.conns) == 0 {
+		logger.Warnf("listener no client connected")
+		logger.Infof("listener %q caching data %q", name, data)
+		return time.NewTimer(2 * time.Second)
+	}
+	// var trim []int
+	// index := len(share.conns) - 1
+	// var err error
+	// for index >= 0 {
+	// 	conn := &(share.conns)[index]
+	// 	logger.Debugf("conn forward %p", *conn)
+	// 	if err = connWrite(*conn, data.Bytes()); err != nil {
+	// 		logger.Debugf("listener write %q on conn %d: %v", name, index, err)
+	// 		if isClosedConnError(err) {
+	// 			trim = append(trim, index)
+	// 		}
+	// 		index -= 1
+	// 		continue
+	// 	}
+	// 	logger.Debugf("listener %q forwarded data %q on conn %d", name, data.Bytes(), index)
+	// 	// The buffer may be the cache, and we want to be sure we only send data once.
+	// 	data.Reset()
+	// 	break
+	// }
+
+	var err error
+	if err = connWrite(share.conns[0], data.Bytes()); err != nil {
+		logger.Debugf("listener write %q on conn %d: %v", name, 0, err)
+	}
+
+	// Remove closed connections.
+	// for i, _ := range trim {
+	// 	share.conns = removeIndex(share.conns, i)
+	// }
+	if err != nil {
+		return time.NewTimer(2 * time.Second)
+	}
+	return nil
+}
+
+func removeIndex(s []net.Conn, index int) []net.Conn {
+	return append(s[:index], s[index+1:]...)
+}
+
 func accept(logger logger.Logger, listener net.Listener, binding AddressBinding, conduit *conduit.Conduit, share *shared) {
 	// Accept the connection.
 	logger.Infof("listening for %q", binding.Name)
 	var wg sync.WaitGroup
 	for {
+		logger.Infof("accept for %q", binding.Name)
 		conn, err := listener.Accept()
 		if err != nil {
 			// TODO: need to check the kind of error

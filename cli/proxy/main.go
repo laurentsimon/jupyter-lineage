@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/logger"
@@ -72,22 +73,40 @@ func main() {
 	}
 
 	// Create our logger.
-	logger := logger.Logger{}
+	workingDir, err := os.Getwd()
+	if err != nil {
+		fatal(fmt.Errorf("get working directory: %w", err))
+	}
+	logFn := filepath.Join(workingDir, "proxy.log")
+	if _, err := os.Stat(logFn); err == nil {
+		os.Remove(logFn)
+	}
+	f, err := os.Create(logFn)
+	if err != nil {
+		fatal(fmt.Errorf("get working directory: %w", err))
+	}
+	defer f.Close()
+	opts := []logger.Option{logger.WithWriter(f)}
+	//opts := []logger.Option{}
+	logger, err := logger.New(opts...)
+	if err != nil {
+		fatal(fmt.Errorf("logger new: %w", err))
+	}
 	// Create repo client.
 	repoClient, err := repository.New(logger)
 	if err != nil {
-		fatal(fmt.Errorf("create session: %w", err))
+		logger.Fatalf("create repository: %v", err)
 	}
 	// Create a new session.
 	session, err := session.New(srcMetadata, dstMetadata,
 		session.WithLogger(logger),
 		session.WithRepositoryClient(repoClient))
 	if err != nil {
-		fatal(fmt.Errorf("create session: %w", err))
+		logger.Fatalf("create session: %v", err)
 	}
 	// Start the session.
 	if err := session.Start(); err != nil {
-		fatal(fmt.Errorf("start session: %w", err))
+		logger.Fatalf("start session: %v", err)
 	}
 
 	// os.Kill?
@@ -95,10 +114,10 @@ func main() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		<-c
-		if err := session.Finish(); err != nil {
-			fatal(fmt.Errorf("finish session: %w", err))
+		if err := session.Stop(); err != nil {
+			logger.Fatalf("finish session: %v", err)
 		}
-		utils.Log("Exiting...\n")
+		logger.Infof("Exiting...\n")
 		os.Exit(0)
 	}()
 

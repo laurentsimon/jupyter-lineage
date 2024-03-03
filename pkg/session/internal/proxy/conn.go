@@ -12,9 +12,9 @@ type closer interface {
 	Close() error
 }
 
-type setNoDelayer interface {
-	SetNoDelay(bool) error
-}
+// type setNoDelayer interface {
+// 	SetNoDelay(bool) error
+// }
 
 // TODO: create class for connection.
 
@@ -59,6 +59,7 @@ func closeConns(logger logger.Logger, conns []net.Conn, name string) {
 }
 
 func connWrite(conn net.Conn, data []byte) error {
+	//return fmt.Errorf("bad")
 	_, err := conn.Write(data)
 	// if n != len(data) {
 	// 	return fmt.Errorf("conn write: %d bytes expected, %d bytes written", len(data), n)

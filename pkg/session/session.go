@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/errs"
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
@@ -38,8 +39,9 @@ type Session struct {
 	dstMetadata NetworkMetadata
 	state       state
 	repoClient  repository.Client
-	proxy       *proxy.Proxy
+	proxies     []*proxy.Proxy
 	logger      logger.Logger
+	counter     atomic.Uint64
 }
 
 type Option func(*Session) error
@@ -52,6 +54,26 @@ func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) 
 			Name: "shell",
 			Src:  address(srcMeta.IP, srcMeta.Ports.Shell),
 			Dst:  address(dstMeta.IP, dstMeta.Ports.Shell),
+		},
+		{
+			Name: "stdin",
+			Src:  address(srcMeta.IP, srcMeta.Ports.Stdin),
+			Dst:  address(dstMeta.IP, dstMeta.Ports.Stdin),
+		},
+		{
+			Name: "iopub",
+			Src:  address(srcMeta.IP, srcMeta.Ports.IOPub),
+			Dst:  address(dstMeta.IP, dstMeta.Ports.IOPub),
+		},
+		{
+			Name: "control",
+			Src:  address(srcMeta.IP, srcMeta.Ports.Control),
+			Dst:  address(dstMeta.IP, dstMeta.Ports.Control),
+		},
+		{
+			Name: "heartbeat",
+			Src:  address(srcMeta.IP, srcMeta.Ports.Heartbeat),
+			Dst:  address(dstMeta.IP, dstMeta.Ports.Heartbeat),
 		},
 	}
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
@@ -77,11 +99,15 @@ func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) 
 		return nil, err
 	}
 	// Set the proxy last, since we need to have the logger setup.
-	proxy, err := proxy.New(addressBinding, session.logger, session.repoClient)
-	if err != nil {
-		return nil, err
+	for i, _ := range addressBinding {
+		b := &addressBinding[i]
+		proxy, err := proxy.New(*b, session.logger, session.repoClient, &session.counter)
+		if err != nil {
+			return nil, err
+		}
+		session.proxies = append(session.proxies, proxy)
 	}
-	session.proxy = proxy
+
 	return &session, nil
 }
 
@@ -98,27 +124,35 @@ func (s *Session) Start() error {
 		return err
 	}
 
-	// Start proxy last.
-	if err := s.proxy.Start(); err != nil {
-		return err
+	// Start proxies last.
+	for i, _ := range s.proxies {
+		p := s.proxies[i]
+		if err := p.Start(); err != nil {
+			return err
+		}
 	}
+
 	// Update the session state.
 	s.state = stateStarted
 	return nil
 }
 
-func (s *Session) Finish() error {
+func (s *Session) Stop() error {
 	// TODO: don't return early on error, innstead try to clean up as much as we can.
 	if s.state == stateFinished {
 		return fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
 	}
-	if err := s.proxy.Finish(); err != nil {
-		return err
+	for i, _ := range s.proxies {
+		p := s.proxies[i]
+		if err := p.Stop(); err != nil {
+			s.logger.Errorf("proxy stop: %v", err)
+		}
 	}
+
 	// TODO: Use repo to save the information
 	// TODO: generate provenance
 	if err := s.repoClient.Close(); err != nil {
-		return err
+		s.logger.Errorf("repo close: %v", err)
 	}
 	return nil
 }
