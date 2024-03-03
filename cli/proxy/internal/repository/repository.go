@@ -1,9 +1,11 @@
 package repository
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
@@ -12,6 +14,7 @@ import (
 
 type Client struct {
 	dir    string
+	dirty  bool
 	logger logger.Logger
 }
 
@@ -38,6 +41,11 @@ func (c *Client) Open() error {
 	if !isEmpty {
 		return fmt.Errorf("directory %q not clean", dir)
 	}
+	// Init the repo.
+	_, stderr, err := c.run("git", "init")
+	if err != nil {
+		return fmt.Errorf("git init: (stderr=%q): %w", stderr, err)
+	}
 	c.dir = dir
 	return nil
 }
@@ -62,17 +70,28 @@ func (c *Client) ID() string {
 
 func (c *Client) CreateFile(path string, content []byte) error {
 	c.logger.Infof("create file %q with content %q", path, string(content))
-	return nil
-}
-
-func (c *Client) AppendFile(path string, content []byte) error {
-	c.logger.Infof("append file %q with content %q", path, string(content))
-	return nil
+	fn := filepath.Join(c.dir, path)
+	os.MkdirAll(filepath.Dir(fn), os.ModePerm)
+	c.dirty = true
+	return os.WriteFile(fn, content, 0644)
 }
 
 func (c *Client) Digest() (repo.Digest, error) {
+	if c.dirty {
+		// Commit files.
+		_, stderr, err := c.run("git", "add", "--all")
+		if err != nil {
+			return repo.Digest{}, fmt.Errorf("git add -all: (stderr=%q): %w", stderr, err)
+		}
+		c.dirty = false
+	}
+	stdout, stderr, err := c.run("git", "rev-parse", "HEAD")
+	if err != nil {
+		return repo.Digest{}, fmt.Errorf("git rev-parse HEAD: (stderr=%q): %w", stderr, err)
+	}
+
 	return repo.Digest{
-			"sha1": "sha1-value"},
+			"sha1": stdout},
 		nil
 }
 
@@ -80,4 +99,18 @@ func (c *Client) Close() error {
 	c.logger.Infof("close repo %q", c.dir)
 	c.dir = ""
 	return nil
+}
+
+func (c *Client) run(bin string, args ...string) (string, string, error) {
+	command := exec.Command(bin, args...)
+	command.Dir = c.dir
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+	command.Stdout = stdout
+	command.Stderr = stderr
+	if err := command.Run(); err != nil {
+		return stdout.String(), stderr.String(), fmt.Errorf("git init: %w", err)
+	}
+	c.logger.Debugf("repo initialized in %s", c.dir)
+	return stdout.String(), "", nil
 }

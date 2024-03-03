@@ -113,7 +113,7 @@ func (p *Proxy) serve() {
 func (p *Proxy) recordConns(src, dst net.Conn) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	// WARNING: It's important we check the cancellation wile holding the mutex.
+	// WARNING: It's important we check the cancellation while holding the mutex.
 	if p.isCancelled() {
 		p.logger.Infof("serve (%q) recordConns cancelled", p.connID(src))
 		p.logger.Infof("serve (%q) recordConns cancelled", p.connID(dst))
@@ -160,7 +160,7 @@ func (p *Proxy) forward(src, dst net.Conn, record bool) {
 			return
 		}
 		p.logger.Debugf("forward (%q) received: %q", p.connID(src), string(buf[:n]))
-		// Copy data to src.
+		// Copy data to dst.
 		_, err = dst.Write(buf[:n])
 		if err != nil {
 			p.logger.Errorf("forward (%q) write: %v", err)
@@ -189,7 +189,7 @@ func (p *Proxy) lstID(lst net.Listener) string {
 }
 
 func (p *Proxy) closeLst(lst net.Listener) {
-	p.logger.Debugf("%s (%q) close", p.lstID(lst))
+	p.logger.Debugf("(%q) close", p.lstID(lst))
 	lst.Close()
 }
 

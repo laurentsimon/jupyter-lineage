@@ -86,8 +86,8 @@ func main() {
 		fatal(fmt.Errorf("get working directory: %w", err))
 	}
 	defer f.Close()
-	opts := []logger.Option{logger.WithWriter(f)}
-	//opts := []logger.Option{}
+	//opts := []logger.Option{logger.WithWriter(f)}
+	opts := []logger.Option{}
 	logger, err := logger.New(opts...)
 	if err != nil {
 		fatal(fmt.Errorf("logger new: %w", err))
@@ -97,6 +97,7 @@ func main() {
 	if err != nil {
 		logger.Fatalf("create repository: %v", err)
 	}
+	defer repoClient.Close()
 	// Create a new session.
 	session, err := session.New(srcMetadata, dstMetadata,
 		session.WithLogger(logger),
@@ -115,8 +116,11 @@ func main() {
 	go func() {
 		<-c
 		if err := session.Stop(); err != nil {
-			logger.Fatalf("finish session: %v", err)
+			logger.Fatalf("stop session: %v", err)
 		}
+		// TODO: SLSA and repo should be part of session
+		digest, err := repoClient.Digest()
+		logger.Infof("repo sha1: %v, %v", digest, err)
 		logger.Infof("Exiting...\n")
 		os.Exit(0)
 	}()

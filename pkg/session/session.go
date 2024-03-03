@@ -137,6 +137,7 @@ func (s *Session) Start() error {
 	return nil
 }
 
+// TODO: create repo and provenance.
 func (s *Session) Stop() error {
 	// TODO: don't return early on error, innstead try to clean up as much as we can.
 	if s.state == stateFinished {

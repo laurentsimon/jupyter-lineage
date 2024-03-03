@@ -33,11 +33,6 @@ func (g *Git) CreateFile(path string, content []byte) error {
 	return nil
 }
 
-func (g *Git) AppendFile(path string, content []byte) error {
-	// TODO: verify ID
-	return nil
-}
-
 func (g *Git) Digest() (repository.Digest, error) {
 	return repository.Digest{
 			"sha1": "sha1-value"},
