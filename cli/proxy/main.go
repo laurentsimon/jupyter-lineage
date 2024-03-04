@@ -17,7 +17,8 @@ import (
 func usage(prog string) {
 	msg := "" +
 		"Usage: %s srcIP, srcShellPort, srcStdinPort, srcIOPubPort, srcControlPort, srcHeartBeatPort\n" +
-		"dstIP, dstShellPort, dstStdinPort, dstIOPubPort, dstControlPort, dstHeartBeatPort\n"
+		"dstIP, dstShellPort, dstStdinPort, dstIOPubPort, dstControlPort, dstHeartBeatPort\n" +
+		"provenancePath"
 	utils.Log(msg, prog)
 	os.Exit(1)
 }
