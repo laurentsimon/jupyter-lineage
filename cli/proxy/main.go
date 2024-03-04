@@ -29,9 +29,10 @@ func fatal(e error) {
 
 func main() {
 	arguments := os.Args[1:]
-	if len(arguments) != 12 {
+	if len(arguments) != 13 {
 		usage(os.Args[0])
 	}
+
 	// src metadata.
 	srcIP := arguments[0]
 	srcShellPort := arguments[1]
@@ -46,6 +47,7 @@ func main() {
 	dstIOPubPort := arguments[9]
 	dstControlPort := arguments[10]
 	dstHeartbeatPort := arguments[11]
+	repoDir := arguments[12]
 
 	utils.Log("%q %q %q %q %q %q %q %q %q %q %q %q\n",
 		srcIP, srcShellPort, srcStdinPort, srcIOPubPort, srcControlPort, srcHeartbeatPort,
@@ -93,9 +95,8 @@ func main() {
 	if err != nil {
 		fatal(fmt.Errorf("logger new: %w", err))
 	}
+
 	// Create repo client.
-	//repoDir := filepath.Join(workingDir, "jupyter_repo")
-	repoDir := "/usr/local/google/home/laurentsimon/slsa/ai/jupyter/code/fake_repo"
 	os.RemoveAll(repoDir)
 	if err := os.MkdirAll(repoDir, os.ModePerm); err != nil {
 		fatal(fmt.Errorf("mkdir: %w", err))
@@ -136,6 +137,9 @@ func main() {
 			logger.Fatalf("provenance: %v", err)
 		}
 		logger.Infof("prov: %s", prov)
+		if err := os.WriteFile(filepath.Join(repoDir, "prov.json"), prov, 0644); err != nil {
+			logger.Fatalf("write provenance: %v", err)
+		}
 		logger.Infof("Exiting...\n")
 		os.Exit(0)
 	}()
