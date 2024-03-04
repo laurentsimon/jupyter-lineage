@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
 type Provenance struct {
@@ -12,13 +14,13 @@ type Provenance struct {
 
 type Option func(*Provenance) error
 
-func New(builder Builder, subjects []Subject, repo Dependency) (*Provenance, error) {
-	return &Provenance{
+func New(builder slsa.Builder, subjects []slsa.Subject, repo Dependency, opts ...Option) (*Provenance, error) {
+	p := Provenance{
 		attestation: attestation{
 			Header: Header{
 				Type:          statementType,
 				PredicateType: predicateType,
-				Subjects:      append([]Subject{}, subjects...), // NOTE: Make a copy.
+				Subjects:      append([]slsa.Subject{}, subjects...),
 			},
 			Predicate: Predicate{
 				BuildDefinition: BuildDefinition{
@@ -30,7 +32,16 @@ func New(builder Builder, subjects []Subject, repo Dependency) (*Provenance, err
 				},
 			},
 		},
-	}, nil
+	}
+
+	// Set optional parameters.
+	for _, option := range opts {
+		err := option(&p)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &p, nil
 }
 
 func (p *Provenance) AddDependencies(deps []Dependency) Option {
@@ -44,7 +55,7 @@ func (p *Provenance) addDependencies(deps []Dependency) error {
 	return nil
 }
 
-func (p *Provenance) WithStartTime(t time.Time) Option {
+func WithStartTime(t time.Time) Option {
 	return func(p *Provenance) error {
 		return p.withStartTime(t)
 	}
@@ -55,7 +66,7 @@ func (p *Provenance) withStartTime(t time.Time) error {
 	return nil
 }
 
-func (p *Provenance) WithfinishTime(t time.Time) Option {
+func WithFinishTime(t time.Time) Option {
 	return func(p *Provenance) error {
 		return p.withFinishTime(t)
 	}

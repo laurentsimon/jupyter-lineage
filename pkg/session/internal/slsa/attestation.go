@@ -1,28 +1,18 @@
 package slsa
 
+import "github.com/laurentsimon/jupyter-lineage/pkg/slsa"
+
 // See https://github.com/in-toto/in-toto-golang/tree/master/in_toto/slsa_provenance/v1
 
-type DigestSet map[string]string
-
 type Dependency struct {
-	URI       string    `json:"uri,omitempty"`
-	DigestSet DigestSet `json:"digest,omitempty"`
-}
-
-type Subject struct {
-	Name    string    `json:"name,omitempty"`
-	Digests DigestSet `json:"digest,omitempty"`
-}
-
-type Builder struct {
-	ID      string `json:"id"`
-	Version string `json:"version,omitempty"`
+	URI       string         `json:"uri,omitempty"`
+	DigestSet slsa.DigestSet `json:"digest,omitempty"`
 }
 
 type Header struct {
-	Type          string    `json:"_type"`
-	PredicateType string    `json:"predicateType"`
-	Subjects      []Subject `json:"subject"`
+	Type          string         `json:"_type"`
+	PredicateType string         `json:"predicateType"`
+	Subjects      []slsa.Subject `json:"subject"`
 }
 
 type BuildDefinition struct {
@@ -32,7 +22,7 @@ type BuildDefinition struct {
 }
 
 type RunDetails struct {
-	Builder       Builder       `json:"builder"`
+	Builder       slsa.Builder  `json:"builder"`
 	BuildMetadata BuildMetadata `json:"metadata,omitempty"`
 }
 

@@ -3,13 +3,15 @@ package session
 import (
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/errs"
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/repository"
-	"github.com/laurentsimon/jupyter-lineage/pkg/session/internal/git"
 	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/session/internal/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/session/internal/proxy"
+	slsaimpl "github.com/laurentsimon/jupyter-lineage/pkg/session/internal/slsa"
+	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
 type state uint
@@ -42,11 +44,13 @@ type Session struct {
 	proxies     []*proxy.Proxy
 	logger      logger.Logger
 	counter     atomic.Uint64
+	startTime   time.Time
+	provenance  []byte
 }
 
 type Option func(*Session) error
 
-func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) {
+func New(srcMeta, dstMeta NetworkMetadata, repoClient repository.Client, options ...Option) (*Session, error) {
 	// If https://go.googlesource.com/proposal/+/master/design/draft-iofs.md is ever implemented and merged,
 	// we'll update the API to take an fs interface.
 	addressBinding := []proxy.AddressBinding{
@@ -81,6 +85,7 @@ func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) 
 		srcMetadata: srcMeta,
 		dstMetadata: dstMeta,
 		state:       stateNew,
+		repoClient:  repoClient,
 	}
 
 	// Set optional parameters.
@@ -94,10 +99,7 @@ func New(srcMeta, dstMeta NetworkMetadata, options ...Option) (*Session, error) 
 	if err := session.setDefaultLogger(); err != nil {
 		return nil, err
 	}
-	// Set repo client to our default git implementation is not set by the caller.
-	if err := session.setDefaultRepoClient(); err != nil {
-		return nil, err
-	}
+
 	// Set the proxy last, since we need to have the logger setup.
 	for i, _ := range addressBinding {
 		b := &addressBinding[i]
@@ -120,7 +122,7 @@ func (s *Session) Start() error {
 		return fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
 	}
 
-	if err := s.repoClient.Open(); err != nil {
+	if err := s.repoClient.Init(); err != nil {
 		return err
 	}
 
@@ -134,10 +136,10 @@ func (s *Session) Start() error {
 
 	// Update the session state.
 	s.state = stateStarted
+	s.startTime = time.Now()
 	return nil
 }
 
-// TODO: create repo and provenance.
 func (s *Session) Stop() error {
 	// TODO: don't return early on error, innstead try to clean up as much as we can.
 	if s.state == stateFinished {
@@ -150,12 +152,41 @@ func (s *Session) Stop() error {
 		}
 	}
 
-	// TODO: Use repo to save the information
-	// TODO: generate provenance
 	if err := s.repoClient.Close(); err != nil {
 		s.logger.Errorf("repo close: %v", err)
 	}
+	s.state = stateFinished
 	return nil
+}
+
+// todo: support adding dependencies.
+func (s *Session) Provenance(builder slsa.Builder, subjects []slsa.Subject, repoURI string) ([]byte, error) {
+	if s.state != stateFinished {
+		return nil, fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
+	}
+	if s.provenance != nil {
+		return s.provenance, nil
+	}
+	digestSet, err := s.repoClient.Digest()
+	if err != nil {
+		return nil, err
+	}
+	repo := slsaimpl.Dependency{
+		DigestSet: digestSet,
+		URI:       repoURI,
+	}
+	prov, err := slsaimpl.New(builder, subjects, repo,
+		slsaimpl.WithStartTime(s.startTime),
+		slsaimpl.WithFinishTime(time.Now()),
+	)
+	if err != nil {
+		return nil, err
+	}
+	s.provenance, err = prov.ToBytes()
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte{}, s.provenance...), nil
 }
 
 func (s *Session) setDefaultLogger() error {
@@ -163,19 +194,6 @@ func (s *Session) setDefaultLogger() error {
 		return nil
 	}
 	s.logger = logimpl.Logger{}
-	return nil
-}
-
-func (s *Session) setDefaultRepoClient() error {
-	if s.repoClient != nil {
-		return nil
-	}
-	client, err := git.New()
-	if err != nil {
-		return fmt.Errorf("create git: %w", err)
-	}
-	s.repoClient = client
-
 	return nil
 }
 
@@ -187,17 +205,6 @@ func WithLogger(l logger.Logger) Option {
 
 func (s *Session) setLogger(l logger.Logger) error {
 	s.logger = l
-	return nil
-}
-
-func WithRepositoryClient(repoClient repository.Client) Option {
-	return func(s *Session) error {
-		return s.setRepositoryClient(repoClient)
-	}
-}
-
-func (s *Session) setRepositoryClient(repoClient repository.Client) error {
-	s.repoClient = repoClient
 	return nil
 }
 

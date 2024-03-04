@@ -11,6 +11,7 @@ import (
 	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/repository"
 	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/utils"
 	"github.com/laurentsimon/jupyter-lineage/pkg/session"
+	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
 func usage(prog string) {
@@ -86,22 +87,26 @@ func main() {
 		fatal(fmt.Errorf("get working directory: %w", err))
 	}
 	defer f.Close()
-	//opts := []logger.Option{logger.WithWriter(f)}
-	opts := []logger.Option{}
+	opts := []logger.Option{logger.WithWriter(f)}
+	//opts := []logger.Option{}
 	logger, err := logger.New(opts...)
 	if err != nil {
 		fatal(fmt.Errorf("logger new: %w", err))
 	}
 	// Create repo client.
-	repoClient, err := repository.New(logger)
-	if err != nil {
-		logger.Fatalf("create repository: %v", err)
+	//repoDir := filepath.Join(workingDir, "jupyter_repo")
+	repoDir := "/usr/local/google/home/laurentsimon/slsa/ai/jupyter/code/fake_repo"
+	os.RemoveAll(repoDir)
+	if err := os.MkdirAll(repoDir, os.ModePerm); err != nil {
+		fatal(fmt.Errorf("mkdir: %w", err))
 	}
-	defer repoClient.Close()
+	repoClient, err := repository.New(logger, repoDir)
+	if err != nil {
+		logger.Fatalf("create repo client: %v", err)
+	}
 	// Create a new session.
 	session, err := session.New(srcMetadata, dstMetadata,
-		session.WithLogger(logger),
-		session.WithRepositoryClient(repoClient))
+		repoClient, session.WithLogger(logger))
 	if err != nil {
 		logger.Fatalf("create session: %v", err)
 	}
@@ -118,9 +123,19 @@ func main() {
 		if err := session.Stop(); err != nil {
 			logger.Fatalf("stop session: %v", err)
 		}
-		// TODO: SLSA and repo should be part of session
-		digest, err := repoClient.Digest()
-		logger.Infof("repo sha1: %v, %v", digest, err)
+		subjects := []slsa.Subject{
+			{
+				Name: "modelX",
+				DigestSet: slsa.DigestSet{
+					"sha1": "86cbdad53be99e43661bbbd2f22d95680334d92d579404a4747b1d15373da263",
+				},
+			},
+		}
+		prov, err := session.Provenance(slsa.Builder{ID: "my-builder-id"}, subjects, "")
+		if err != nil {
+			logger.Fatalf("provenance: %v", err)
+		}
+		logger.Infof("prov: %s", prov)
 		logger.Infof("Exiting...\n")
 		os.Exit(0)
 	}()

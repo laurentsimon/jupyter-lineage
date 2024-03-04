@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
-	repo "github.com/laurentsimon/jupyter-lineage/pkg/repository"
+	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
 type Client struct {
@@ -18,35 +18,29 @@ type Client struct {
 	logger logger.Logger
 }
 
-func New(l logger.Logger) (*Client, error) {
-	// TODO: init folders.
+func New(l logger.Logger, dir string) (*Client, error) {
 	return &Client{
 		logger: l,
+		dir:    dir,
 	}, nil
 }
 
-func (c *Client) Open() error {
-	workingDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("get working directory: %w", err)
+func (c *Client) Init() error {
+	if _, err := os.Stat(c.dir); os.IsNotExist(err) {
+		return fmt.Errorf("dir %q does not exist", c.dir)
 	}
-	dir := filepath.Join(workingDir, "jupyter_repo")
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return fmt.Errorf("mkdir: %w", err)
-	}
-	isEmpty, err := isEmptyDir(dir)
+	isEmpty, err := isEmptyDir(c.dir)
 	if err != nil {
 		return fmt.Errorf("empty dir: %w", err)
 	}
 	if !isEmpty {
-		return fmt.Errorf("directory %q not clean", dir)
+		return fmt.Errorf("directory %q not clean", c.dir)
 	}
 	// Init the repo.
 	_, stderr, err := c.run("git", "init")
 	if err != nil {
 		return fmt.Errorf("git init: (stderr=%q): %w", stderr, err)
 	}
-	c.dir = dir
 	return nil
 }
 
@@ -64,10 +58,6 @@ func isEmptyDir(dir string) (bool, error) {
 	return false, err // Either not empty or error, suits both cases
 }
 
-func (c *Client) ID() string {
-	return c.dir
-}
-
 func (c *Client) CreateFile(path string, content []byte) error {
 	c.logger.Infof("create file %q with content %q", path, string(content))
 	fn := filepath.Join(c.dir, path)
@@ -76,28 +66,32 @@ func (c *Client) CreateFile(path string, content []byte) error {
 	return os.WriteFile(fn, content, 0644)
 }
 
-func (c *Client) Digest() (repo.Digest, error) {
+func (c *Client) Digest() (slsa.DigestSet, error) {
 	if c.dirty {
-		// Commit files.
+		// Add files.
 		_, stderr, err := c.run("git", "add", "--all")
 		if err != nil {
-			return repo.Digest{}, fmt.Errorf("git add -all: (stderr=%q): %w", stderr, err)
+			return slsa.DigestSet{}, fmt.Errorf("git add -all: (stderr=%q): %w", stderr, err)
+		}
+		// Commit files.
+		_, stderr, err = c.run("git", "commit", "-m", "commit_msg")
+		if err != nil {
+			return slsa.DigestSet{}, fmt.Errorf("git commit -m \"commit_msg\": (stderr=%q): %w", stderr, err)
 		}
 		c.dirty = false
 	}
 	stdout, stderr, err := c.run("git", "rev-parse", "HEAD")
 	if err != nil {
-		return repo.Digest{}, fmt.Errorf("git rev-parse HEAD: (stderr=%q): %w", stderr, err)
+		return slsa.DigestSet{}, fmt.Errorf("git rev-parse HEAD: (stderr=%q): %w", stderr, err)
 	}
 
-	return repo.Digest{
-			"sha1": stdout},
+	return slsa.DigestSet{
+			"sha1": stdout[:len(stdout)-1]}, // Remove last characters which is '\n'
 		nil
 }
 
 func (c *Client) Close() error {
 	c.logger.Infof("close repo %q", c.dir)
-	c.dir = ""
 	return nil
 }
 
@@ -111,6 +105,6 @@ func (c *Client) run(bin string, args ...string) (string, string, error) {
 	if err := command.Run(); err != nil {
 		return stdout.String(), stderr.String(), fmt.Errorf("git init: %w", err)
 	}
-	c.logger.Debugf("repo initialized in %s", c.dir)
+	c.logger.Debugf("command %v: %s", append([]string{bin}, args...), stdout.String())
 	return stdout.String(), "", nil
 }

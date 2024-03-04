@@ -1,11 +1,10 @@
 package repository
 
-type Digest map[string]string
+import "github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 
 type Client interface {
-	Open() error
-	ID() string
+	Init() error
 	CreateFile(path string, content []byte) error
-	Digest() (Digest, error)
+	Digest() (slsa.DigestSet, error)
 	Close() error
 }

@@ -156,7 +156,7 @@ func (p *Proxy) forward(src, dst net.Conn, record bool) {
 			return
 		}
 		if n == 0 {
-			p.logger.Warnf("forward (%q)return", p.connID(src))
+			p.logger.Warnf("forward (%q) return", p.connID(src))
 			return
 		}
 		p.logger.Debugf("forward (%q) received: %q", p.connID(src), string(buf[:n]))
