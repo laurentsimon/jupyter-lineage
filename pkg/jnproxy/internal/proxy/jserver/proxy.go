@@ -152,31 +152,34 @@ func (p *Proxy) forward(src, dst net.Conn, record bool) {
 	for {
 		n, err := src.Read(buf)
 		if err != nil && err != io.EOF {
-			p.logger.Errorf("forward (%q) read: %v", p.connID(src), err)
+			p.logger.Errorf("forward (%q -> %q) read: %v", p.connID(src), p.connID(dst), err)
 			return
 		}
 		if n == 0 {
-			p.logger.Warnf("forward (%q) return", p.connID(src))
+			p.logger.Warnf("forward (%q -> %q) return", p.connID(src), p.connID(dst))
 			return
 		}
-		p.logger.Debugf("forward (%q) received: %q", p.connID(src), string(buf[:n]))
+		p.logger.Debugf("forward (%q -> %q) received: %q", p.connID(src), p.connID(dst), string(buf[:n]))
+		
+		p.counter.Add(1)
+
+		if record {
+			// Record the data. We do that _before_ data is actually sent because a malicious
+			// kernel could close the connection and act as if the data was not received.
+			fn := fmt.Sprintf("%s/%016x_%s", p.binding.Name, p.counter.Load(), time.Now().UTC().Format(time.RFC3339))
+			if err := p.repoClient.CreateFile(fn, buf[:n]); err != nil {
+				p.logger.Errorf("forward create file %q: %v", fn, err)
+				return
+			}
+		}
+
 		// Copy data to dst.
 		_, err = dst.Write(buf[:n])
 		if err != nil {
-			p.logger.Errorf("forward (%q) write: %v", err)
+			p.logger.Errorf("forward (%q -> %q) write: %v", p.connID(src), p.connID(dst), err)
 			return
 		}
-		if !record {
-			continue
-		}
-
-		// Write succeeded record the data.
-		fn := fmt.Sprintf("%s/%016x_%s", p.binding.Name, p.counter.Load(), time.Now().UTC().Format(time.RFC3339))
-		if err := p.repoClient.CreateFile(fn, buf[:n]); err != nil {
-			p.logger.Errorf("forward create file %q: %v", fn, err)
-			return
-		}
-		p.counter.Add(1)
+		// TODO: Keep a record of the write result.
 	}
 }
 

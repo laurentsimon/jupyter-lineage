@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 )
 
 type Option func(*Logger) error
@@ -39,22 +40,22 @@ func (l *Logger) setWriter(w io.Writer) error {
 }
 
 func (l Logger) Fatalf(format string, a ...any) {
-	l.writer.Write([]byte(fmt.Sprintf("FATAL: "+format+"\n", a...)))
+	l.writer.Write([]byte(fmt.Sprintf("FATAL/%s: "+format+"\n", []any{time.Now().UTC().Format(time.RFC3339), a})))
 	os.Exit(1)
 }
 
 func (l Logger) Errorf(format string, a ...any) {
-	l.writer.Write([]byte(fmt.Sprintf("ERROR: "+format+"\n", a...)))
+	l.writer.Write([]byte(fmt.Sprintf("ERROR/%s: "+format+"\n", []any{time.Now().UTC().Format(time.RFC3339), a})))
 }
 
 func (l Logger) Infof(format string, a ...any) {
-	l.writer.Write([]byte(fmt.Sprintf("INFO: "+format+"\n", a...)))
+	l.writer.Write([]byte(fmt.Sprintf("INFO/%s: "+format+"\n", []any{time.Now().UTC().Format(time.RFC3339), a})))
 }
 
 func (l Logger) Warnf(format string, a ...any) {
-	l.writer.Write([]byte(fmt.Sprintf("WARN: "+format+"\n", a...)))
+	l.writer.Write([]byte(fmt.Sprintf("WARN/%s: "+format+"\n", []any{time.Now().UTC().Format(time.RFC3339), a})))
 }
 
 func (l Logger) Debugf(format string, a ...any) {
-	l.writer.Write([]byte(fmt.Sprintf("DEBUG: "+format+"\n", a...)))
+	l.writer.Write([]byte(fmt.Sprintf("DEBUG/%s: "+format+"\n", []any{time.Now().UTC().Format(time.RFC3339), a})))
 }

@@ -20,6 +20,7 @@ type JServerConfig struct {
 }
 
 func JServerConfigNew(srcConfig, dstConfig NetworkConfig) (*JServerConfig, error) {
+	// TODO: Validate the inputs.
 	return &JServerConfig{
 		srcConfig: srcConfig,
 		dstConfig: dstConfig,
