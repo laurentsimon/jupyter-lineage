@@ -55,25 +55,30 @@ func main() {
 		dstIP, dstShellPort, dstStdinPort, dstIOPubPort, dstControlPort, dstHeartbeatPort,
 	)
 
-	srcMetadata := jnproxy.NetworkMetadata{
-		IP: srcIP,
-		Ports: jnproxy.Ports{
-			Shell:     utils.StringToUint(srcShellPort),
-			Stdin:     utils.StringToUint(srcStdinPort),
-			IOPub:     utils.StringToUint(srcIOPubPort),
-			Control:   utils.StringToUint(srcControlPort),
-			Heartbeat: utils.StringToUint(srcHeartbeatPort),
+	jserverConfig, err := jnproxy.JServerConfigNew(
+		jnproxy.NetworkConfig{
+			IP: srcIP,
+			Ports: jnproxy.Ports{
+				Shell:     utils.StringToUint(srcShellPort),
+				Stdin:     utils.StringToUint(srcStdinPort),
+				IOPub:     utils.StringToUint(srcIOPubPort),
+				Control:   utils.StringToUint(srcControlPort),
+				Heartbeat: utils.StringToUint(srcHeartbeatPort),
+			},
 		},
-	}
-	dstMetadata := jnproxy.NetworkMetadata{
-		IP: dstIP,
-		Ports: jnproxy.Ports{
-			Shell:     utils.StringToUint(dstShellPort),
-			Stdin:     utils.StringToUint(dstStdinPort),
-			IOPub:     utils.StringToUint(dstIOPubPort),
-			Control:   utils.StringToUint(dstControlPort),
-			Heartbeat: utils.StringToUint(dstHeartbeatPort),
+		jnproxy.NetworkConfig{
+			IP: dstIP,
+			Ports: jnproxy.Ports{
+				Shell:     utils.StringToUint(dstShellPort),
+				Stdin:     utils.StringToUint(dstStdinPort),
+				IOPub:     utils.StringToUint(dstIOPubPort),
+				Control:   utils.StringToUint(dstControlPort),
+				Heartbeat: utils.StringToUint(dstHeartbeatPort),
+			},
 		},
+	)
+	if err != nil {
+		fatal(fmt.Errorf("JServerConfigNew: %w", err))
 	}
 
 	// Create our logger.
@@ -107,7 +112,7 @@ func main() {
 		logger.Fatalf("create repo client: %v", err)
 	}
 	// Create a new jnproxy.
-	proxy, err := jnproxy.New(srcMetadata, dstMetadata,
+	proxy, err := jnproxy.New(*jserverConfig,
 		repoClient, jnproxy.WithLogger(logger))
 	if err != nil {
 		logger.Fatalf("create proxy: %v", err)

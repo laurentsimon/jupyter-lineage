@@ -24,70 +24,55 @@ const (
 	stateFinished
 )
 
-// See https://jupyter-client.readthedocs.io/en/stable/messaging.html
-type Ports struct {
-	Shell     uint
-	Stdin     uint
-	IOPub     uint
-	Control   uint
-	Heartbeat uint
-}
-
-type NetworkMetadata struct {
-	IP    string
-	Ports Ports
-}
-
 type JNProxy struct {
-	srcMetadata NetworkMetadata
-	dstMetadata NetworkMetadata
-	state       state
-	repoClient  repository.Client
-	proxies     []proxy.Proxy
-	logger      logger.Logger
-	counter     atomic.Uint64
-	startTime   time.Time
-	provenance  []byte
+	state      state
+	repoClient repository.Client
+	proxies    []proxy.Proxy
+	logger     logger.Logger
+	counter    atomic.Uint64
+	startTime  time.Time
+	provenance []byte
 }
 
 type Option func(*JNProxy) error
 
-func New(srcMeta, dstMeta NetworkMetadata, repoClient repository.Client, options ...Option) (*JNProxy, error) {
+// TODO: put metadat under
+func New(jServerConfig JServerConfig, repoClient repository.Client, options ...Option) (*JNProxy, error) {
 	// If https://go.googlesource.com/proposal/+/master/design/draft-iofs.md is ever implemented and merged,
 	// we'll update the API to take an fs interface.
+	srcConfig := jServerConfig.src()
+	dstConfig := jServerConfig.dst()
 	addressBinding := []jserver.AddressBinding{
 		{
 			Name: "shell",
-			Src:  address(srcMeta.IP, srcMeta.Ports.Shell),
-			Dst:  address(dstMeta.IP, dstMeta.Ports.Shell),
+			Src:  address(srcConfig.IP, srcConfig.Ports.Shell),
+			Dst:  address(dstConfig.IP, dstConfig.Ports.Shell),
 		},
 		{
 			Name: "stdin",
-			Src:  address(srcMeta.IP, srcMeta.Ports.Stdin),
-			Dst:  address(dstMeta.IP, dstMeta.Ports.Stdin),
+			Src:  address(srcConfig.IP, srcConfig.Ports.Stdin),
+			Dst:  address(dstConfig.IP, dstConfig.Ports.Stdin),
 		},
 		{
 			Name: "iopub",
-			Src:  address(srcMeta.IP, srcMeta.Ports.IOPub),
-			Dst:  address(dstMeta.IP, dstMeta.Ports.IOPub),
+			Src:  address(srcConfig.IP, srcConfig.Ports.IOPub),
+			Dst:  address(dstConfig.IP, dstConfig.Ports.IOPub),
 		},
 		{
 			Name: "control",
-			Src:  address(srcMeta.IP, srcMeta.Ports.Control),
-			Dst:  address(dstMeta.IP, dstMeta.Ports.Control),
+			Src:  address(srcConfig.IP, srcConfig.Ports.Control),
+			Dst:  address(dstConfig.IP, dstConfig.Ports.Control),
 		},
 		{
 			Name: "heartbeat",
-			Src:  address(srcMeta.IP, srcMeta.Ports.Heartbeat),
-			Dst:  address(dstMeta.IP, dstMeta.Ports.Heartbeat),
+			Src:  address(srcConfig.IP, srcConfig.Ports.Heartbeat),
+			Dst:  address(dstConfig.IP, dstConfig.Ports.Heartbeat),
 		},
 	}
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
 	jnpproxy := JNProxy{
-		srcMetadata: srcMeta,
-		dstMetadata: dstMeta,
-		state:       stateNew,
-		repoClient:  repoClient,
+		state:      stateNew,
+		repoClient: repoClient,
 	}
 
 	// Set optional parameters.
