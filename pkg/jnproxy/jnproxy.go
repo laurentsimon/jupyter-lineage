@@ -37,7 +37,7 @@ type JNProxy struct {
 type Option func(*JNProxy) error
 
 // TODO: put metadat under
-func New(jServerConfig JServerConfig, repoClient repository.Client, options ...Option) (*JNProxy, error) {
+func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient repository.Client, options ...Option) (*JNProxy, error) {
 	// If https://go.googlesource.com/proposal/+/master/design/draft-iofs.md is ever implemented and merged,
 	// we'll update the API to take an fs interface.
 	srcConfig := jServerConfig.src()
@@ -69,6 +69,7 @@ func New(jServerConfig JServerConfig, repoClient repository.Client, options ...O
 			Dst:  address(dstConfig.IP, dstConfig.Ports.Heartbeat),
 		},
 	}
+	fmt.Println(addressBinding)
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
 	jnpproxy := JNProxy{
 		state:      stateNew,
@@ -88,21 +89,24 @@ func New(jServerConfig JServerConfig, repoClient repository.Client, options ...O
 	}
 
 	// Set the proxy last, since we need to have the logger setup.
-	for i, _ := range addressBinding {
-		b := &addressBinding[i]
-		proxy, err := jserver.New(*b, jnpproxy.logger, jnpproxy.repoClient, &jnpproxy.counter)
+	// for i, _ := range addressBinding {
+	// 	b := &addressBinding[i]
+	// 	proxy, err := jserver.New(*b, jnpproxy.logger, jnpproxy.repoClient, &jnpproxy.counter)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	jnpproxy.proxies = append(jnpproxy.proxies, proxy)
+	// }
+
+	// Create the http proxy.
+	for i := range httpConfig.addr {
+		addr := &httpConfig.addr[i]
+		httpProxy, err := httpproxy.New(*addr, jnpproxy.logger)
 		if err != nil {
 			return nil, err
 		}
-		jnpproxy.proxies = append(jnpproxy.proxies, proxy)
+		jnpproxy.proxies = append(jnpproxy.proxies, httpProxy)
 	}
-
-	// Create the http proxy.
-	httpProxy, err := httpproxy.New()
-	if err != nil {
-		return nil, err
-	}
-	jnpproxy.proxies = append(jnpproxy.proxies, httpProxy)
 
 	return &jnpproxy, nil
 }

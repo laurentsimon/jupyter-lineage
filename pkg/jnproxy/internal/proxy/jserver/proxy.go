@@ -50,12 +50,12 @@ func New(binding AddressBinding, logger logger.Logger, repoClient repository.Cli
 
 func (p *Proxy) Start() error {
 	if p.listener != nil {
-		return fmt.Errorf("proxy already running")
+		return fmt.Errorf("jserver:proxy already running")
 	}
 	// TODO: use ctx
 	listener, err := net.Listen("tcp", p.binding.Src)
 	if err != nil {
-		return fmt.Errorf("listen (%q): %w", p.binding.Name, err)
+		return fmt.Errorf("jserver:listen (%q): %w", p.binding.Name, err)
 	}
 	p.listener = listener
 	p.wg.Add(1)
@@ -70,21 +70,21 @@ func (p *Proxy) serve() {
 		src, err := p.listener.Accept()
 		if err != nil {
 			if p.isCancelled() {
-				p.logger.Infof("serve (%q) exiting", p.lstID(p.listener))
+				p.logger.Infof("jserver:serve (%q) exiting", p.lstID(p.listener))
 				return
 			}
 			continue
 		}
-		p.logger.Errorf("serve (%q) accept from %v", p.lstID(p.listener), src.RemoteAddr().String())
+		p.logger.Errorf("jserver:serve (%q) accept from %v", p.lstID(p.listener), src.RemoteAddr().String())
 		p.setConnSettings(src)
 
 		dst, err := net.Dial("tcp", p.binding.Dst)
 		if err != nil {
-			p.logger.Errorf("serve (%q) dial: %v", p.connID(src), err)
+			p.logger.Errorf("jserver:serve (%q) dial: %v", p.connID(src), err)
 			p.closeConn(src)
 			continue
 		}
-		p.logger.Errorf("serve (%q) connect to %v", p.lstID(p.listener), dst.RemoteAddr().String())
+		p.logger.Errorf("jserver:serve (%q) connect to %v", p.lstID(p.listener), dst.RemoteAddr().String())
 		p.setConnSettings(dst)
 
 		// WARNING: There is a race condition here. If Stop() is called,
@@ -94,7 +94,7 @@ func (p *Proxy) serve() {
 		if !p.recordConns(src, dst) {
 			p.closeConn(src)
 			p.closeConn(dst)
-			p.logger.Infof("serve (%q) (%q) exiting", p.connID(src), p.connID(dst))
+			p.logger.Infof("jserver:serve (%q) (%q) exiting", p.connID(src), p.connID(dst))
 			return
 		}
 		p.wg.Add(1)
@@ -115,8 +115,8 @@ func (p *Proxy) recordConns(src, dst net.Conn) bool {
 	defer p.mu.Unlock()
 	// WARNING: It's important we check the cancellation while holding the mutex.
 	if p.isCancelled() {
-		p.logger.Infof("serve (%q) recordConns cancelled", p.connID(src))
-		p.logger.Infof("serve (%q) recordConns cancelled", p.connID(dst))
+		p.logger.Infof("jserver:serve (%q) recordConns cancelled", p.connID(src))
+		p.logger.Infof("jserver:serve (%q) recordConns cancelled", p.connID(dst))
 		return false
 	}
 	p.conns = append(p.conns, src, dst)
@@ -152,15 +152,15 @@ func (p *Proxy) forward(src, dst net.Conn, record bool) {
 	for {
 		n, err := src.Read(buf)
 		if err != nil && err != io.EOF {
-			p.logger.Errorf("forward (%q -> %q) read: %v", p.connID(src), p.connID(dst), err)
+			p.logger.Errorf("jserver:forward (%q -> %q) read: %v", p.connID(src), p.connID(dst), err)
 			return
 		}
 		if n == 0 {
-			p.logger.Warnf("forward (%q -> %q) return", p.connID(src), p.connID(dst))
+			p.logger.Warnf("jserver:forward (%q -> %q) return", p.connID(src), p.connID(dst))
 			return
 		}
-		p.logger.Debugf("forward (%q -> %q) received: %q", p.connID(src), p.connID(dst), string(buf[:n]))
-		
+		p.logger.Debugf("jserver:forward (%q -> %q) received: %q", p.connID(src), p.connID(dst), string(buf[:n]))
+
 		p.counter.Add(1)
 
 		if record {
@@ -168,7 +168,7 @@ func (p *Proxy) forward(src, dst net.Conn, record bool) {
 			// kernel could close the connection and act as if the data was not received.
 			fn := fmt.Sprintf("%s/%016x_%s", p.binding.Name, p.counter.Load(), time.Now().UTC().Format(time.RFC3339))
 			if err := p.repoClient.CreateFile(fn, buf[:n]); err != nil {
-				p.logger.Errorf("forward create file %q: %v", fn, err)
+				p.logger.Errorf("jserver:forward create file %q: %v", fn, err)
 				return
 			}
 		}
@@ -176,7 +176,7 @@ func (p *Proxy) forward(src, dst net.Conn, record bool) {
 		// Copy data to dst.
 		_, err = dst.Write(buf[:n])
 		if err != nil {
-			p.logger.Errorf("forward (%q -> %q) write: %v", p.connID(src), p.connID(dst), err)
+			p.logger.Errorf("jserver:forward (%q -> %q) write: %v", p.connID(src), p.connID(dst), err)
 			return
 		}
 		// TODO: Keep a record of the write result.
@@ -192,12 +192,12 @@ func (p *Proxy) lstID(lst net.Listener) string {
 }
 
 func (p *Proxy) closeLst(lst net.Listener) {
-	p.logger.Debugf("(%q) close", p.lstID(lst))
+	p.logger.Debugf("jserver(%q) close", p.lstID(lst))
 	lst.Close()
 }
 
 func (p *Proxy) closeConn(conn net.Conn) {
-	p.logger.Debugf("(%q) close", p.connID(conn))
+	p.logger.Debugf("jserver(%q) close", p.connID(conn))
 	conn.Close()
 }
 

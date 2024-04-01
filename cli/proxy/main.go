@@ -81,6 +81,11 @@ func main() {
 		fatal(fmt.Errorf("JServerConfigNew: %w", err))
 	}
 
+	httpConfig, err := jnproxy.HttpConfigNew([]string{"localhost:80"})
+	if err != nil {
+		fatal(fmt.Errorf("HttpConfigNew: %w", err))
+	}
+
 	// Create our logger.
 	workingDir, err := os.Getwd()
 	if err != nil {
@@ -112,7 +117,7 @@ func main() {
 		logger.Fatalf("create repo client: %v", err)
 	}
 	// Create a new jnproxy.
-	proxy, err := jnproxy.New(*jserverConfig,
+	proxy, err := jnproxy.New(*jserverConfig, *httpConfig,
 		repoClient, jnproxy.WithLogger(logger))
 	if err != nil {
 		logger.Fatalf("create proxy: %v", err)
