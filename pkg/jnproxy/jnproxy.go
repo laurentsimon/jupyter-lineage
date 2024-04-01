@@ -7,6 +7,8 @@ import (
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/errs"
 	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/logger"
+	"github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/proxy"
+	httpproxy "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/proxy/http"
 	"github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/proxy/jserver"
 	slsaimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/slsa"
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
@@ -41,7 +43,7 @@ type JNProxy struct {
 	dstMetadata NetworkMetadata
 	state       state
 	repoClient  repository.Client
-	proxies     []*jserver.Proxy
+	proxies     []proxy.Proxy
 	logger      logger.Logger
 	counter     atomic.Uint64
 	startTime   time.Time
@@ -109,6 +111,13 @@ func New(srcMeta, dstMeta NetworkMetadata, repoClient repository.Client, options
 		}
 		jnpproxy.proxies = append(jnpproxy.proxies, proxy)
 	}
+
+	// Create the http proxy.
+	httpProxy, err := httpproxy.New()
+	if err != nil {
+		return nil, err
+	}
+	jnpproxy.proxies = append(jnpproxy.proxies, httpProxy)
 
 	return &jnpproxy, nil
 }
