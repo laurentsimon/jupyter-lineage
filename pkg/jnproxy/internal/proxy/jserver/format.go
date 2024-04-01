@@ -1,4 +1,4 @@
-package proxy
+package jserver
 
 import (
 	"encoding/json"

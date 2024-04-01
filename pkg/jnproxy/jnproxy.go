@@ -7,7 +7,7 @@ import (
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/errs"
 	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/logger"
-	"github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/proxy"
+	"github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/proxy/jserver"
 	slsaimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/slsa"
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/repository"
@@ -41,7 +41,7 @@ type JNProxy struct {
 	dstMetadata NetworkMetadata
 	state       state
 	repoClient  repository.Client
-	proxies     []*proxy.Proxy
+	proxies     []*jserver.Proxy
 	logger      logger.Logger
 	counter     atomic.Uint64
 	startTime   time.Time
@@ -53,7 +53,7 @@ type Option func(*JNProxy) error
 func New(srcMeta, dstMeta NetworkMetadata, repoClient repository.Client, options ...Option) (*JNProxy, error) {
 	// If https://go.googlesource.com/proposal/+/master/design/draft-iofs.md is ever implemented and merged,
 	// we'll update the API to take an fs interface.
-	addressBinding := []proxy.AddressBinding{
+	addressBinding := []jserver.AddressBinding{
 		{
 			Name: "shell",
 			Src:  address(srcMeta.IP, srcMeta.Ports.Shell),
@@ -81,7 +81,7 @@ func New(srcMeta, dstMeta NetworkMetadata, repoClient repository.Client, options
 		},
 	}
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
-	JNProxy := JNProxy{
+	jnpproxy := JNProxy{
 		srcMetadata: srcMeta,
 		dstMetadata: dstMeta,
 		state:       stateNew,
@@ -90,27 +90,27 @@ func New(srcMeta, dstMeta NetworkMetadata, repoClient repository.Client, options
 
 	// Set optional parameters.
 	for _, option := range options {
-		err := option(&JNProxy)
+		err := option(&jnpproxy)
 		if err != nil {
 			return nil, err
 		}
 	}
 	// Set the default logger
-	if err := JNProxy.setDefaultLogger(); err != nil {
+	if err := jnpproxy.setDefaultLogger(); err != nil {
 		return nil, err
 	}
 
 	// Set the proxy last, since we need to have the logger setup.
 	for i, _ := range addressBinding {
 		b := &addressBinding[i]
-		proxy, err := proxy.New(*b, JNProxy.logger, JNProxy.repoClient, &JNProxy.counter)
+		proxy, err := jserver.New(*b, jnpproxy.logger, jnpproxy.repoClient, &jnpproxy.counter)
 		if err != nil {
 			return nil, err
 		}
-		JNProxy.proxies = append(JNProxy.proxies, proxy)
+		jnpproxy.proxies = append(jnpproxy.proxies, proxy)
 	}
 
-	return &JNProxy, nil
+	return &jnpproxy, nil
 }
 
 func address(ip string, port uint) string {
@@ -145,7 +145,7 @@ func (s *JNProxy) Stop() error {
 	if s.state == stateFinished {
 		return fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
 	}
-	for i, _ := range s.proxies {
+	for i := range s.proxies {
 		p := s.proxies[i]
 		if err := p.Stop(); err != nil {
 			s.logger.Errorf("proxy stop: %v", err)
