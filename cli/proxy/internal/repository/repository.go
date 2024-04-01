@@ -86,7 +86,7 @@ func (c *Client) Digest() (slsa.DigestSet, error) {
 	}
 
 	return slsa.DigestSet{
-			"sha1": stdout[:len(stdout)-1]}, // Remove last characters which is '\n'
+			"gitCommit": stdout[:len(stdout)-1]}, // Remove last characters which is '\n'
 		nil
 }
 

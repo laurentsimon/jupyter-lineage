@@ -1,4 +1,4 @@
-package session
+package jnproxy
 
 import (
 	"fmt"
@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/errs"
+	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/logger"
+	"github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/proxy"
+	slsaimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/slsa"
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/repository"
-	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/session/internal/logger"
-	"github.com/laurentsimon/jupyter-lineage/pkg/session/internal/proxy"
-	slsaimpl "github.com/laurentsimon/jupyter-lineage/pkg/session/internal/slsa"
 	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
@@ -36,7 +36,7 @@ type NetworkMetadata struct {
 	Ports Ports
 }
 
-type Session struct {
+type JNProxy struct {
 	srcMetadata NetworkMetadata
 	dstMetadata NetworkMetadata
 	state       state
@@ -48,9 +48,9 @@ type Session struct {
 	provenance  []byte
 }
 
-type Option func(*Session) error
+type Option func(*JNProxy) error
 
-func New(srcMeta, dstMeta NetworkMetadata, repoClient repository.Client, options ...Option) (*Session, error) {
+func New(srcMeta, dstMeta NetworkMetadata, repoClient repository.Client, options ...Option) (*JNProxy, error) {
 	// If https://go.googlesource.com/proposal/+/master/design/draft-iofs.md is ever implemented and merged,
 	// we'll update the API to take an fs interface.
 	addressBinding := []proxy.AddressBinding{
@@ -81,7 +81,7 @@ func New(srcMeta, dstMeta NetworkMetadata, repoClient repository.Client, options
 		},
 	}
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
-	session := Session{
+	JNProxy := JNProxy{
 		srcMetadata: srcMeta,
 		dstMetadata: dstMeta,
 		state:       stateNew,
@@ -90,34 +90,34 @@ func New(srcMeta, dstMeta NetworkMetadata, repoClient repository.Client, options
 
 	// Set optional parameters.
 	for _, option := range options {
-		err := option(&session)
+		err := option(&JNProxy)
 		if err != nil {
 			return nil, err
 		}
 	}
 	// Set the default logger
-	if err := session.setDefaultLogger(); err != nil {
+	if err := JNProxy.setDefaultLogger(); err != nil {
 		return nil, err
 	}
 
 	// Set the proxy last, since we need to have the logger setup.
 	for i, _ := range addressBinding {
 		b := &addressBinding[i]
-		proxy, err := proxy.New(*b, session.logger, session.repoClient, &session.counter)
+		proxy, err := proxy.New(*b, JNProxy.logger, JNProxy.repoClient, &JNProxy.counter)
 		if err != nil {
 			return nil, err
 		}
-		session.proxies = append(session.proxies, proxy)
+		JNProxy.proxies = append(JNProxy.proxies, proxy)
 	}
 
-	return &session, nil
+	return &JNProxy, nil
 }
 
 func address(ip string, port uint) string {
 	return fmt.Sprintf("%s:%d", ip, port)
 }
 
-func (s *Session) Start() error {
+func (s *JNProxy) Start() error {
 	if s.state != stateNew {
 		return fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
 	}
@@ -134,13 +134,13 @@ func (s *Session) Start() error {
 		}
 	}
 
-	// Update the session state.
+	// Update the JNProxy state.
 	s.state = stateStarted
 	s.startTime = time.Now()
 	return nil
 }
 
-func (s *Session) Stop() error {
+func (s *JNProxy) Stop() error {
 	// TODO: don't return early on error, innstead try to clean up as much as we can.
 	if s.state == stateFinished {
 		return fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
@@ -160,7 +160,7 @@ func (s *Session) Stop() error {
 }
 
 // todo: support adding dependencies.
-func (s *Session) Provenance(builder slsa.Builder, subjects []slsa.Subject, repoURI string) ([]byte, error) {
+func (s *JNProxy) Provenance(builder slsa.Builder, subjects []slsa.Subject, repoURI string) ([]byte, error) {
 	if s.state != stateFinished {
 		return nil, fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
 	}
@@ -189,7 +189,7 @@ func (s *Session) Provenance(builder slsa.Builder, subjects []slsa.Subject, repo
 	return append([]byte{}, s.provenance...), nil
 }
 
-func (s *Session) setDefaultLogger() error {
+func (s *JNProxy) setDefaultLogger() error {
 	if s.logger != nil {
 		return nil
 	}
@@ -198,12 +198,12 @@ func (s *Session) setDefaultLogger() error {
 }
 
 func WithLogger(l logger.Logger) Option {
-	return func(s *Session) error {
+	return func(s *JNProxy) error {
 		return s.setLogger(l)
 	}
 }
 
-func (s *Session) setLogger(l logger.Logger) error {
+func (s *JNProxy) setLogger(l logger.Logger) error {
 	s.logger = l
 	return nil
 }

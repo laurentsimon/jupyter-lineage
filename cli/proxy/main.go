@@ -10,7 +10,7 @@ import (
 	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/logger"
 	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/repository"
 	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/utils"
-	"github.com/laurentsimon/jupyter-lineage/pkg/session"
+	"github.com/laurentsimon/jupyter-lineage/pkg/jnproxy"
 	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
@@ -55,9 +55,9 @@ func main() {
 		dstIP, dstShellPort, dstStdinPort, dstIOPubPort, dstControlPort, dstHeartbeatPort,
 	)
 
-	srcMetadata := session.NetworkMetadata{
+	srcMetadata := jnproxy.NetworkMetadata{
 		IP: srcIP,
-		Ports: session.Ports{
+		Ports: jnproxy.Ports{
 			Shell:     utils.StringToUint(srcShellPort),
 			Stdin:     utils.StringToUint(srcStdinPort),
 			IOPub:     utils.StringToUint(srcIOPubPort),
@@ -65,9 +65,9 @@ func main() {
 			Heartbeat: utils.StringToUint(srcHeartbeatPort),
 		},
 	}
-	dstMetadata := session.NetworkMetadata{
+	dstMetadata := jnproxy.NetworkMetadata{
 		IP: dstIP,
-		Ports: session.Ports{
+		Ports: jnproxy.Ports{
 			Shell:     utils.StringToUint(dstShellPort),
 			Stdin:     utils.StringToUint(dstStdinPort),
 			IOPub:     utils.StringToUint(dstIOPubPort),
@@ -106,15 +106,15 @@ func main() {
 	if err != nil {
 		logger.Fatalf("create repo client: %v", err)
 	}
-	// Create a new session.
-	session, err := session.New(srcMetadata, dstMetadata,
-		repoClient, session.WithLogger(logger))
+	// Create a new jnproxy.
+	proxy, err := jnproxy.New(srcMetadata, dstMetadata,
+		repoClient, jnproxy.WithLogger(logger))
 	if err != nil {
-		logger.Fatalf("create session: %v", err)
+		logger.Fatalf("create proxy: %v", err)
 	}
-	// Start the session.
-	if err := session.Start(); err != nil {
-		logger.Fatalf("start session: %v", err)
+	// Start the jnproxy.
+	if err := proxy.Start(); err != nil {
+		logger.Fatalf("start proxy: %v", err)
 	}
 
 	// os.Kill?
@@ -122,18 +122,18 @@ func main() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		<-c
-		if err := session.Stop(); err != nil {
-			logger.Fatalf("stop session: %v", err)
+		if err := proxy.Stop(); err != nil {
+			logger.Fatalf("stop proxy: %v", err)
 		}
 		subjects := []slsa.Subject{
 			{
 				Name: "modelX",
 				DigestSet: slsa.DigestSet{
-					"sha1": "86cbdad53be99e43661bbbd2f22d95680334d92d579404a4747b1d15373da263",
+					"sha256": "86cbdad53be99e43661bbbd2f22d95680334d92d579404a4747b1d15373da263",
 				},
 			},
 		}
-		prov, err := session.Provenance(slsa.Builder{ID: "my-builder-id"}, subjects, "")
+		prov, err := proxy.Provenance(slsa.Builder{ID: "https://colab.googleapis.com/ColabHostedKernel"}, subjects, "")
 		if err != nil {
 			logger.Fatalf("provenance: %v", err)
 		}

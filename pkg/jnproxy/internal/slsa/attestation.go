@@ -45,5 +45,5 @@ type attestation struct {
 const (
 	statementType = "https://in-toto.io/Statement/v1"
 	predicateType = "https://slsa.dev/provenance/v1"
-	buildType     = "https://slsa-framework/jupyter-lineage/v1"
+	buildType     = "https://slsa-framework/jupyter-lineage/back-position/0.1"
 )
