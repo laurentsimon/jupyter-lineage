@@ -36,7 +36,11 @@ type JNProxy struct {
 
 type Option func(*JNProxy) error
 
-// TODO: put metadat under
+/*
+import os
+os.environ['HTTP_PROXY'] = 'http://proxy_url:proxy_port'
+os.environ['HTTPS_PROXY'] = 'http://proxy_url:proxy_port'
+*/
 func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient repository.Client, options ...Option) (*JNProxy, error) {
 	// If https://go.googlesource.com/proposal/+/master/design/draft-iofs.md is ever implemented and merged,
 	// we'll update the API to take an fs interface.
@@ -69,6 +73,7 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 			Dst:  address(dstConfig.IP, dstConfig.Ports.Heartbeat),
 		},
 	}
+	fmt.Println(addressBinding)
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
 	jnpproxy := JNProxy{
 		state:      stateNew,
@@ -88,7 +93,7 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 	}
 
 	// Set the proxy last, since we need to have the logger setup.
-	for i, _ := range addressBinding {
+	for i := range addressBinding {
 		b := &addressBinding[i]
 		proxy, err := jserver.New(*b, jnpproxy.logger, jnpproxy.repoClient, &jnpproxy.counter)
 		if err != nil {
