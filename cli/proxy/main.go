@@ -81,7 +81,7 @@ func main() {
 		fatal(fmt.Errorf("JServerConfigNew: %w", err))
 	}
 
-	httpConfig, err := jnproxy.HttpConfigNew([]string{"localhost:8888"})
+	httpConfig, err := jnproxy.HttpConfigNew([]string{"localhost:9999"})
 	if err != nil {
 		fatal(fmt.Errorf("HttpConfigNew: %w", err))
 	}
@@ -100,8 +100,8 @@ func main() {
 		fatal(fmt.Errorf("get working directory: %w", err))
 	}
 	defer f.Close()
-	//opts := []logger.Option{logger.WithWriter(f)}
-	opts := []logger.Option{}
+	opts := []logger.Option{logger.WithWriter(f)}
+	//opts := []logger.Option{}
 	logger, err := logger.New(opts...)
 	if err != nil {
 		fatal(fmt.Errorf("logger new: %w", err))

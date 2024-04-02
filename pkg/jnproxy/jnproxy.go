@@ -38,8 +38,8 @@ type Option func(*JNProxy) error
 
 /*
 import os
-os.environ['HTTP_PROXY'] = 'localhost:8888'
-os.environ['HTTPS_PROXY'] = 'localhost:8888'
+os.environ['HTTP_PROXY'] = 'localhost:9999'
+os.environ['HTTPS_PROXY'] = 'localhost:9999'
 import urllib3
 
 # Creating a PoolManager instance for sending requests.
