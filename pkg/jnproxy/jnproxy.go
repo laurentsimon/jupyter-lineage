@@ -38,8 +38,18 @@ type Option func(*JNProxy) error
 
 /*
 import os
-os.environ['HTTP_PROXY'] = 'http://proxy_url:proxy_port'
-os.environ['HTTPS_PROXY'] = 'http://proxy_url:proxy_port'
+os.environ['HTTP_PROXY'] = 'localhost:8888'
+os.environ['HTTPS_PROXY'] = 'localhost:8888'
+import urllib3
+
+# Creating a PoolManager instance for sending requests.
+http = urllib3.PoolManager()
+
+# Sending a GET request and getting back response as HTTPResponse object.
+resp = http.request("GET", "http://www.google.com")
+
+# Print the returned data.
+print(resp.data)
 */
 func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient repository.Client, options ...Option) (*JNProxy, error) {
 	// If https://go.googlesource.com/proposal/+/master/design/draft-iofs.md is ever implemented and merged,

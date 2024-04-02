@@ -100,8 +100,8 @@ func main() {
 		fatal(fmt.Errorf("get working directory: %w", err))
 	}
 	defer f.Close()
-	opts := []logger.Option{logger.WithWriter(f)}
-	//opts := []logger.Option{}
+	//opts := []logger.Option{logger.WithWriter(f)}
+	opts := []logger.Option{}
 	logger, err := logger.New(opts...)
 	if err != nil {
 		fatal(fmt.Errorf("logger new: %w", err))
