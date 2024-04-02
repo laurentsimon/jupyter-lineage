@@ -40,6 +40,10 @@ type Option func(*JNProxy) error
 import os
 os.environ['HTTP_PROXY'] = 'localhost:9999'
 os.environ['HTTPS_PROXY'] = 'localhost:9999'
+
+from urllib.request import urlopen
+urlopen('http://www.google.com')
+
 import urllib3
 
 # Creating a PoolManager instance for sending requests.

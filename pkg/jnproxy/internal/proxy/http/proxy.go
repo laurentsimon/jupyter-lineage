@@ -1,10 +1,8 @@
-package proxy
+package http
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"sync"
 
@@ -13,9 +11,10 @@ import (
 )
 
 type Proxy struct {
-	wg     sync.WaitGroup
-	logger logger.Logger
-	server *http.Server
+	wg      sync.WaitGroup
+	logger  logger.Logger
+	server  *http.Server
+	handler handler
 }
 
 /*
@@ -24,17 +23,12 @@ type Proxy struct {
 os.environ['HTTP_PROXY'] = 'http://proxy_url:proxy_port'
 os.environ['HTTPS_PROXY'] = 'http://proxy_url:proxy_port'
 */
+
+// TODO: Take as variadic options including handlers.
+// We'll have our own default ones that people can use
+// like: DenyHostHandler, AllowHostHandler, HuggingfaceDatasetHandler, etc
 func New(address string, logger logger.Logger) (*Proxy, error) {
 	httpProxy := goproxy.NewProxyHttpServer()
-	httpProxy.OnResponse(goproxy.ReqHostIs("www.google.com")).DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
-		b, _ := ioutil.ReadAll(resp.Body)
-		// TODO: handle error
-		logger.Debugf("http: received (%q): %s", "www.google.com", string(b))
-		resp.Body.Close()
-
-		resp.Body = ioutil.NopCloser(bytes.NewBufferString(string(b)))
-		return resp
-	})
 	proxy := &Proxy{
 		server: &http.Server{
 			Addr:    address,
@@ -42,6 +36,16 @@ func New(address string, logger logger.Logger) (*Proxy, error) {
 		},
 		logger: logger,
 	}
+	handler := handler{
+		logger:       logger,
+		allowedHosts: []string{"www.google.com"},
+	}
+	httpProxy.OnRequest().DoFunc(func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+		return handler.onRequest(r, ctx)
+	})
+	httpProxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+		return handler.onResponse(resp, ctx)
+	})
 	return proxy, nil
 }
 
