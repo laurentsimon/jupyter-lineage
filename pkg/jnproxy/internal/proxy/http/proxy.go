@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"sync"
 
@@ -16,12 +18,29 @@ type Proxy struct {
 	server *http.Server
 }
 
+/*
+	import os
+
+os.environ['HTTP_PROXY'] = 'http://proxy_url:proxy_port'
+os.environ['HTTPS_PROXY'] = 'http://proxy_url:proxy_port'
+*/
 func New(address string, logger logger.Logger) (*Proxy, error) {
+	httpProxy := goproxy.NewProxyHttpServer()
+	httpProxy.OnResponse(goproxy.ReqHostIs("www.google.com")).DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+		b, _ := ioutil.ReadAll(resp.Body)
+		// TODO: handle error
+		logger.Debugf("http: received (%q): %s", "www.google.com", string(b))
+		resp.Body.Close()
+
+		resp.Body = ioutil.NopCloser(bytes.NewBufferString(string(b)))
+		return resp
+	})
 	proxy := &Proxy{
 		server: &http.Server{
 			Addr:    address,
-			Handler: goproxy.NewProxyHttpServer(),
+			Handler: httpProxy,
 		},
+		logger: logger,
 	}
 	return proxy, nil
 }

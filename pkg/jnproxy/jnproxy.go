@@ -69,7 +69,6 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 			Dst:  address(dstConfig.IP, dstConfig.Ports.Heartbeat),
 		},
 	}
-	fmt.Println(addressBinding)
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
 	jnpproxy := JNProxy{
 		state:      stateNew,
@@ -89,14 +88,14 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 	}
 
 	// Set the proxy last, since we need to have the logger setup.
-	// for i, _ := range addressBinding {
-	// 	b := &addressBinding[i]
-	// 	proxy, err := jserver.New(*b, jnpproxy.logger, jnpproxy.repoClient, &jnpproxy.counter)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	jnpproxy.proxies = append(jnpproxy.proxies, proxy)
-	// }
+	for i, _ := range addressBinding {
+		b := &addressBinding[i]
+		proxy, err := jserver.New(*b, jnpproxy.logger, jnpproxy.repoClient, &jnpproxy.counter)
+		if err != nil {
+			return nil, err
+		}
+		jnpproxy.proxies = append(jnpproxy.proxies, proxy)
+	}
 
 	// Create the http proxy.
 	for i := range httpConfig.addr {

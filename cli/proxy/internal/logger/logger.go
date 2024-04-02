@@ -40,22 +40,22 @@ func (l *Logger) setWriter(w io.Writer) error {
 }
 
 func (l Logger) Fatalf(format string, a ...any) {
-	l.writer.Write([]byte(fmt.Sprintf("FATAL/%s: "+format+"\n", []any{time.Now().UTC().Format(time.RFC3339), a})))
+	l.writer.Write([]byte(fmt.Sprintf("FATAL/"+time.Now().UTC().Format(time.RFC3339)+": "+format+"\n", a...)))
 	os.Exit(1)
 }
 
 func (l Logger) Errorf(format string, a ...any) {
-	l.writer.Write([]byte(fmt.Sprintf("ERROR/%s: "+format+"\n", []any{time.Now().UTC().Format(time.RFC3339), a})))
+	l.writer.Write([]byte(fmt.Sprintf("ERROR/"+time.Now().UTC().Format(time.RFC3339)+": "+format+"\n", a...)))
 }
 
 func (l Logger) Infof(format string, a ...any) {
-	l.writer.Write([]byte(fmt.Sprintf("INFO/%s: "+format+"\n", []any{time.Now().UTC().Format(time.RFC3339), a})))
+	l.writer.Write([]byte(fmt.Sprintf("INFO/"+time.Now().UTC().Format(time.RFC3339)+": "+format+"\n", a...)))
 }
 
 func (l Logger) Warnf(format string, a ...any) {
-	l.writer.Write([]byte(fmt.Sprintf("WARN/%s: "+format+"\n", []any{time.Now().UTC().Format(time.RFC3339), a})))
+	l.writer.Write([]byte(fmt.Sprintf("WARN/"+time.Now().UTC().Format(time.RFC3339)+": "+format+"\n", a...)))
 }
 
 func (l Logger) Debugf(format string, a ...any) {
-	l.writer.Write([]byte(fmt.Sprintf("DEBUG/%s: "+format+"\n", []any{time.Now().UTC().Format(time.RFC3339), a})))
+	l.writer.Write([]byte(fmt.Sprintf("DEBUG/"+time.Now().UTC().Format(time.RFC3339)+": "+format+"\n", a...)))
 }
