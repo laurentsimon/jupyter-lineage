@@ -79,7 +79,7 @@ func createHttpProxy(logger logger.Logger) (*goproxy.ProxyHttpServer, error) {
 	// https://pkg.go.dev/net/http#ProxyFromEnvironment
 	// WARNING: By default, the proxy does not verify the destination certificate,
 	// see https://github.com/elazarl/goproxy/blob/master/proxy.go#L219 so we
-	// must overwrite the TLSClientConfig
+	// must overwrite the TLSClientConfig.
 	httpProxy.Tr = &http.Transport{Proxy: http.ProxyFromEnvironment}
 	httpProxy.CertStore = newCertStorage()
 	// TODO: Set a CA.

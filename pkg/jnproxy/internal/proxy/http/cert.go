@@ -18,14 +18,16 @@ func setCA(cert, key []byte) error {
 	}
 	// NOTE: goproxy.GoproxyCa = ca should not be needed.
 	goproxy.GoproxyCa = ca
-	// NOTE: see https://github.com/elazarl/goproxy/blob/7cc037d33fb57d20c2fa7075adaf0e2d2862da78/https.go#L467.
+	// NOTE: see https://github.com/elazarl/goproxy/blob/7cc037d33fb57d20c2fa7075adaf0e2d2862da78/https.go#L467,
+	// the default cetificate verification is disabled, so we turn it back on.
 	tlsConfigFn := func(ca *tls.Certificate) func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
 		return func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
+			// TODO: Use our own function to support custom signer and other options.
 			config, err := goproxy.TLSConfigFromCA(ca)(host, ctx)
 			if err != nil {
 				return nil, err
 			}
-			// Disable insecure verification.
+			// Disable insecure verification, ie., enable secure verification.
 			config.InsecureSkipVerify = false
 			return config, nil
 		}
