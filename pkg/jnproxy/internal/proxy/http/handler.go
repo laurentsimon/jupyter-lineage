@@ -21,15 +21,17 @@ type handler struct {
 	denyList     []string
 }
 
+// NOTE: We could use goproxy.ReqHostMatches(regexp.MustCompile("^.*$") with a list of regex as whown
+// in https://github.com/elazarl/goproxy/blob/7cc037d33fb57d20c2fa7075adaf0e2d2862da78/README.md?plain=1#L139
 func (h *handler) onRequest(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
 	req, resp, err := h.enforceHostAllowList(r, ctx)
 	if err != nil {
-		h.logger.Debugf("http: request error: %v", err)
+		h.logger.Debugf("[http]: request error: %v", err)
 		return req, resp
 	}
 	req, resp, err = h.enforceHostDenyList(r, ctx)
 	if err != nil {
-		h.logger.Debugf("http: request error: %v", err)
+		h.logger.Debugf("[http]: request error: %v", err)
 		return req, resp
 	}
 	return r, nil
@@ -59,7 +61,7 @@ func (h *handler) enforceHostDenyList(r *http.Request, ctx *goproxy.ProxyCtx) (*
 		if goproxy.ReqHostIs(*val)(r, ctx) {
 			return r, goproxy.NewResponse(r,
 					goproxy.ContentTypeText, http.StatusForbidden,
-					"Don't waste your time!"),
+					"Forbidden"),
 				fmt.Errorf("%w: destination (%q) on deny list", errs.ErrorInvalid, r.Host)
 
 		}
@@ -70,7 +72,7 @@ func (h *handler) enforceHostDenyList(r *http.Request, ctx *goproxy.ProxyCtx) (*
 func (h *handler) onResponse(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
 	b, _ := ioutil.ReadAll(resp.Body)
 	// TODO: handle error
-	h.logger.Debugf("http: received (%q):\nHeader:\n%q\nBody:\n%q", ctx.Req.Host, resp.Header, b)
+	h.logger.Debugf("[http]: received (%q):\nHeader:\n%q\nBody:\n%q", ctx.Req.Host, resp.Header, b)
 	resp.Body.Close()
 	resp.Body = ioutil.NopCloser(bytes.NewBufferString(string(b)))
 	return resp

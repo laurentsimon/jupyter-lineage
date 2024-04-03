@@ -42,7 +42,11 @@ os.environ['HTTP_PROXY'] = 'localhost:9999'
 os.environ['HTTPS_PROXY'] = 'localhost:9999'
 
 from urllib.request import urlopen
-urlopen('http://www.google.com')
+
+import requests
+import urllib
+response = requests.get("http://localhost:8082/v3/nodes", data=query)
+print response.json()
 
 import urllib3
 
