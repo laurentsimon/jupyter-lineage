@@ -2,44 +2,8 @@ package http
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"sync"
-
-	"github.com/elazarl/goproxy"
 )
-
-func setCA(cert, key []byte) error {
-	ca, err := tls.X509KeyPair(cert, key)
-	if err != nil {
-		return err
-	}
-	if ca.Leaf, err = x509.ParseCertificate(ca.Certificate[0]); err != nil {
-		return err
-	}
-	// NOTE: goproxy.GoproxyCa = ca should not be needed.
-	goproxy.GoproxyCa = ca
-	// NOTE: see https://github.com/elazarl/goproxy/blob/7cc037d33fb57d20c2fa7075adaf0e2d2862da78/https.go#L467,
-	// the default cetificate verification is disabled, so we turn it back on.
-	tlsConfigFn := func(ca *tls.Certificate) func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
-		return func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
-			// TODO: Use our own function to support custom signer and other options.
-			config, err := goproxy.TLSConfigFromCA(ca)(host, ctx)
-			if err != nil {
-				return nil, err
-			}
-			// Disable insecure verification, ie., enable secure verification.
-			config.InsecureSkipVerify = false
-			return config, nil
-		}
-
-	}
-	tlsConfig := tlsConfigFn(&ca)
-	goproxy.OkConnect = &goproxy.ConnectAction{Action: goproxy.ConnectAccept, TLSConfig: tlsConfig}
-	goproxy.MitmConnect = &goproxy.ConnectAction{Action: goproxy.ConnectMitm, TLSConfig: tlsConfig}
-	goproxy.HTTPMitmConnect = &goproxy.ConnectAction{Action: goproxy.ConnectHTTPMitm, TLSConfig: tlsConfig}
-	goproxy.RejectConnect = &goproxy.ConnectAction{Action: goproxy.ConnectReject, TLSConfig: tlsConfig}
-	return nil
-}
 
 type certStorage struct {
 	certs sync.Map

@@ -12,10 +12,10 @@ import (
 )
 
 type Proxy struct {
-	wg      sync.WaitGroup
-	logger  logger.Logger
-	server  *http.Server
-	handler handler
+	wg     sync.WaitGroup
+	logger logger.Logger
+	server *http.Server
+	ca     *CA
 }
 
 type Option func(*Proxy) error
@@ -52,6 +52,11 @@ func New(address string, options ...Option) (*Proxy, error) {
 		logger: logimpl.Logger{},
 	}
 
+	// Create the http proxy.
+	if err := proxy.createHttpProxy(); err != nil {
+		return nil, err
+	}
+
 	// Set optional parameters.
 	for _, option := range options {
 		err := option(proxy)
@@ -60,16 +65,33 @@ func New(address string, options ...Option) (*Proxy, error) {
 		}
 	}
 
-	// Create the http proxy.
-	httpProxy, err := createHttpProxy(proxy.logger)
-	if err != nil {
-		return nil, err
-	}
-	proxy.server.Handler = httpProxy
+	return proxy, nil
+}
 
-	// Create the custom handler.
+func (p *Proxy) createHttpProxy() error {
+	httpProxy := goproxy.NewProxyHttpServer()
+	httpProxy.Logger = httpLogger{
+		// Pass our logger to the proxy.
+		// Unfortuantely, it does not support different types of logging :/
+		logger: p.logger,
+	}
+	// https://pkg.go.dev/net/http#ProxyFromEnvironment
+	// WARNING: By default, the proxy does not verify the destination certificate,
+	// see https://github.com/elazarl/goproxy/blob/master/proxy.go#L219 so we
+	// must overwrite the TLSClientConfig.
+	httpProxy.Tr = &http.Transport{Proxy: http.ProxyFromEnvironment}
+	httpProxy.CertStore = newCertStorage()
+	if p.ca != nil {
+		if err := setCA(p.ca); err != nil {
+			return err
+		}
+	}
+
+	httpProxy.Verbose = true
+
+	// Set the custom handler.
 	handler := handler{
-		logger:       proxy.logger,
+		logger:       p.logger,
 		allowedHosts: []string{"www.google.com"},
 	}
 	// Set callbacks.
@@ -79,27 +101,9 @@ func New(address string, options ...Option) (*Proxy, error) {
 	httpProxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
 		return handler.onResponse(resp, ctx)
 	})
-	return proxy, nil
-}
 
-func createHttpProxy(logger logger.Logger) (*goproxy.ProxyHttpServer, error) {
-	httpProxy := goproxy.NewProxyHttpServer()
-	httpProxy.Logger = httpLogger{
-		// Pass our logger to the proxy.
-		// Unfortuantely, it does not support different types of logging :/
-		logger: logger,
-	}
-	// https://pkg.go.dev/net/http#ProxyFromEnvironment
-	// WARNING: By default, the proxy does not verify the destination certificate,
-	// see https://github.com/elazarl/goproxy/blob/master/proxy.go#L219 so we
-	// must overwrite the TLSClientConfig.
-	httpProxy.Tr = &http.Transport{Proxy: http.ProxyFromEnvironment}
-	httpProxy.CertStore = newCertStorage()
-	// if err := setCA([]byte{}, []byte{}); err != nil {
-	// 	return nil, err
-	// }
-	httpProxy.Verbose = true
-	return httpProxy, nil
+	p.server.Handler = httpProxy
+	return nil
 }
 
 func WithLogger(l logger.Logger) Option {

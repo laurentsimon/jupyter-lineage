@@ -32,6 +32,7 @@ type JNProxy struct {
 	counter    atomic.Uint64
 	startTime  time.Time
 	provenance []byte
+	ca         *CA
 }
 
 type Option func(*JNProxy) error
@@ -118,9 +119,16 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 	}
 
 	// Create the http proxy.
+	opts := []httpproxy.Option{httpproxy.WithLogger(jnpproxy.logger)}
+	if jnpproxy.ca != nil {
+		opts = append(opts, httpproxy.WithCA(httpproxy.CA{
+			Certificate: jnpproxy.ca.Certificate,
+			Key:         jnpproxy.ca.Key,
+		}))
+	}
 	for i := range httpConfig.addr {
 		addr := &httpConfig.addr[i]
-		httpProxy, err := httpproxy.New(*addr, httpproxy.WithLogger(jnpproxy.logger))
+		httpProxy, err := httpproxy.New(*addr, opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -144,7 +152,7 @@ func (s *JNProxy) Start() error {
 	}
 
 	// Start proxies last.
-	for i, _ := range s.proxies {
+	for i := range s.proxies {
 		p := s.proxies[i]
 		if err := p.Start(); err != nil {
 			return err
