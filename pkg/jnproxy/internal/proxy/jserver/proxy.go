@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/repository"
 )
@@ -35,17 +36,38 @@ type Proxy struct {
 	counter    *atomic.Uint64
 }
 
-func New(binding AddressBinding, logger logger.Logger, repoClient repository.Client, counter *atomic.Uint64) (*Proxy, error) {
+type Option func(*Proxy) error
+
+func New(binding AddressBinding, repoClient repository.Client, counter *atomic.Uint64, options ...Option) (*Proxy, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	proxy := &Proxy{
 		binding:    binding,
 		ctx:        ctx,
 		cancel:     cancel,
-		logger:     logger,
 		repoClient: repoClient,
 		counter:    counter,
+		logger:     logimpl.Logger{},
+	}
+
+	// Set optional parameters.
+	for _, option := range options {
+		err := option(proxy)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return proxy, nil
+}
+
+func WithLogger(l logger.Logger) Option {
+	return func(p *Proxy) error {
+		return p.setLogger(l)
+	}
+}
+
+func (p *Proxy) setLogger(l logger.Logger) error {
+	p.logger = l
+	return nil
 }
 
 func (p *Proxy) Start() error {

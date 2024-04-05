@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/elazarl/goproxy"
+	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
 )
 
@@ -16,6 +17,8 @@ type Proxy struct {
 	server  *http.Server
 	handler handler
 }
+
+type Option func(*Proxy) error
 
 /*
 	import os
@@ -40,23 +43,33 @@ os.environ['HTTPS_PROXY'] = 'http://proxy_url:proxy_port'
 //		https://github.com/elazarl/goproxy/blob/master/certs.go#L20 used in https://github.com/elazarl/goproxy/blob/master/https.go#L467
 //		https://github.com/elazarl/goproxy/blob/master/proxy.go#L219 https://github.com/elazarl/goproxy/blob/7cc037d33fb57d20c2fa7075adaf0e2d2862da78/https.go#L33-L37
 
-func New(address string, logger logger.Logger) (*Proxy, error) {
-	// Create the http proxy.
-	httpProxy, err := createHttpProxy(logger)
-	if err != nil {
-		return nil, err
-	}
+func New(address string, options ...Option) (*Proxy, error) {
 	// Create self.
 	proxy := &Proxy{
 		server: &http.Server{
-			Addr:    address,
-			Handler: httpProxy,
+			Addr: address,
 		},
-		logger: logger,
+		logger: logimpl.Logger{},
 	}
-	// Create the handler.
+
+	// Set optional parameters.
+	for _, option := range options {
+		err := option(proxy)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Create the http proxy.
+	httpProxy, err := createHttpProxy(proxy.logger)
+	if err != nil {
+		return nil, err
+	}
+	proxy.server.Handler = httpProxy
+
+	// Create the custom handler.
 	handler := handler{
-		logger:       logger,
+		logger:       proxy.logger,
 		allowedHosts: []string{"www.google.com"},
 	}
 	// Set callbacks.
@@ -82,12 +95,22 @@ func createHttpProxy(logger logger.Logger) (*goproxy.ProxyHttpServer, error) {
 	// must overwrite the TLSClientConfig.
 	httpProxy.Tr = &http.Transport{Proxy: http.ProxyFromEnvironment}
 	httpProxy.CertStore = newCertStorage()
-	// TODO: Set a CA.
-	if err := setCA([]byte{}, []byte{}); err != nil {
-		return nil, err
-	}
+	// if err := setCA([]byte{}, []byte{}); err != nil {
+	// 	return nil, err
+	// }
 	httpProxy.Verbose = true
 	return httpProxy, nil
+}
+
+func WithLogger(l logger.Logger) Option {
+	return func(p *Proxy) error {
+		return p.setLogger(l)
+	}
+}
+
+func (p *Proxy) setLogger(l logger.Logger) error {
+	p.logger = l
+	return nil
 }
 
 func (p *Proxy) Start() error {

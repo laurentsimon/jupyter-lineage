@@ -91,11 +91,12 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 			Dst:  address(dstConfig.IP, dstConfig.Ports.Heartbeat),
 		},
 	}
-	fmt.Println(addressBinding)
+
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
 	jnpproxy := JNProxy{
 		state:      stateNew,
 		repoClient: repoClient,
+		logger:     logimpl.Logger{},
 	}
 
 	// Set optional parameters.
@@ -105,15 +106,11 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 			return nil, err
 		}
 	}
-	// Set the default logger
-	if err := jnpproxy.setDefaultLogger(); err != nil {
-		return nil, err
-	}
 
 	// Set the proxy last, since we need to have the logger setup.
 	for i := range addressBinding {
 		b := &addressBinding[i]
-		proxy, err := jserver.New(*b, jnpproxy.logger, jnpproxy.repoClient, &jnpproxy.counter)
+		proxy, err := jserver.New(*b, jnpproxy.repoClient, &jnpproxy.counter, jserver.WithLogger(jnpproxy.logger))
 		if err != nil {
 			return nil, err
 		}
@@ -123,7 +120,7 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 	// Create the http proxy.
 	for i := range httpConfig.addr {
 		addr := &httpConfig.addr[i]
-		httpProxy, err := httpproxy.New(*addr, jnpproxy.logger)
+		httpProxy, err := httpproxy.New(*addr, httpproxy.WithLogger(jnpproxy.logger))
 		if err != nil {
 			return nil, err
 		}
@@ -207,14 +204,6 @@ func (s *JNProxy) Provenance(builder slsa.Builder, subjects []slsa.Subject, repo
 		return nil, err
 	}
 	return append([]byte{}, s.provenance...), nil
-}
-
-func (s *JNProxy) setDefaultLogger() error {
-	if s.logger != nil {
-		return nil
-	}
-	s.logger = logimpl.Logger{}
-	return nil
 }
 
 func WithLogger(l logger.Logger) Option {

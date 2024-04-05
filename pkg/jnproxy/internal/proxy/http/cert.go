@@ -69,6 +69,7 @@ func newCertStorage() *certStorage {
 
 // TODO: Copy https://github.com/elazarl/goproxy/blob/master/https.go#L467
 // and support WithCAKey(), WithCASigner(), WithCertStorage() or EnableCertCaching()
+// WithEndDate()
 /*
 func tlsConfigFromCA(ca *tls.Certificate) func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
 	return func(host string, ctx *goproxy.ProxyCtx) (*tls.Config, error) {
