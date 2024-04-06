@@ -85,15 +85,23 @@ func (p *Proxy) createHttpProxy() error {
 	httpProxy.Verbose = true
 
 	// Set the custom handler.
+	/* TODO: handler will need:
+	set of allow / deny, regex, etc list
+	a callback (stateful?) to stream the data back (using session ID)
+	need to know when request is over, and return a resource descriptor.
+	*/
 	handler := handler{
 		logger:     p.logger,
-		allowHosts: []string{"www.google.com"},
+		allowHosts: []string{"www.google.com", "huggingface.co", "cdn-lfs.huggingface.co"},
+		// denyHosts, allowURLHost, etc
 	}
 	// Set callbacks.
 	httpProxy.OnRequest().DoFunc(func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+		// TODO: here we need to go thru handlers
 		return handler.onRequest(r, ctx)
 	})
 	httpProxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
+		// TODO: here we need to go thru handlers
 		return handler.onResponse(resp, ctx)
 	})
 	httpProxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)

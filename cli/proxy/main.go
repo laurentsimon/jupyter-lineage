@@ -118,11 +118,11 @@ func main() {
 		logger.Fatalf("create repo client: %v", err)
 	}
 	// Read CA
-	cert, err := os.Open("../../scripts/ca.cert")
+	cert, err := os.Open("../../scripts/certs/ca.cert")
 	if err != nil {
 		fatal(fmt.Errorf("read cert: %w", err))
 	}
-	key, err := os.Open("../../scripts/ca.key")
+	key, err := os.Open("../../scripts/certs/ca.key")
 	if err != nil {
 		fatal(fmt.Errorf("read key: %w", err))
 	}

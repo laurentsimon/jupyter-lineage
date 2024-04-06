@@ -207,6 +207,7 @@ func (s *JNProxy) Provenance(builder slsa.Builder, subjects []slsa.Subject, repo
 	if err != nil {
 		return nil, err
 	}
+	// TODO: Add dependencies collected from the http proxies.
 	s.provenance, err = prov.ToBytes()
 	if err != nil {
 		return nil, err
