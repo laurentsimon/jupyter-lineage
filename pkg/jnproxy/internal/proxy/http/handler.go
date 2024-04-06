@@ -16,9 +16,9 @@ import (
 // probably need to move this to root of folder. I think we only need to expose
 // an Init, onResponse, onRequest APIs
 type handler struct {
-	logger       logger.Logger
-	allowedHosts []string
-	denyList     []string
+	logger     logger.Logger
+	allowHosts []string
+	denyHosts  []string
 }
 
 // NOTE: We could use goproxy.ReqHostMatches(regexp.MustCompile("^.*$") with a list of regex as whown
@@ -29,7 +29,7 @@ func (h *handler) onRequest(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Reque
 		h.logger.Debugf("[http]: request error: %v", err)
 		return req, resp
 	}
-	req, resp, err = h.enforceHostDenyList(r, ctx)
+	req, resp, err = h.enforceHostdenyHosts(r, ctx)
 	if err != nil {
 		h.logger.Debugf("[http]: request error: %v", err)
 		return req, resp
@@ -38,12 +38,14 @@ func (h *handler) onRequest(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Reque
 }
 
 func (h *handler) enforceHostAllowList(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response, error) {
-	if len(h.allowedHosts) == 0 {
+	if len(h.allowHosts) == 0 {
 		return r, nil, nil
 	}
-	for i := range h.allowedHosts {
-		val := &h.allowedHosts[i]
-		if goproxy.ReqHostIs(*val)(r, ctx) {
+	// NOTE: We could also handle regexe like
+	// shown in https://github.com/elazarl/goproxy/blob/master/examples/goproxy-eavesdropper/main.go#L24.
+	for i := range h.allowHosts {
+		val := &h.allowHosts[i]
+		if r.Host == *val {
 			return r, nil, nil
 		}
 	}
@@ -55,10 +57,11 @@ func (h *handler) enforceHostAllowList(r *http.Request, ctx *goproxy.ProxyCtx) (
 		fmt.Errorf("%w: destination (%q) not on allow list", errs.ErrorInvalid, r.Host)
 }
 
-func (h *handler) enforceHostDenyList(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response, error) {
-	for i := range h.denyList {
-		val := &h.denyList[i]
-		if goproxy.ReqHostIs(*val)(r, ctx) {
+func (h *handler) enforceHostdenyHosts(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response, error) {
+	for i := range h.denyHosts {
+		// if goproxy.DstHostIs(*val)(r, ctx) includes port matching.
+		val := &h.denyHosts[i]
+		if r.Host == *val {
 			return r, goproxy.NewResponse(r,
 					goproxy.ContentTypeText, http.StatusForbidden,
 					"Forbidden"),

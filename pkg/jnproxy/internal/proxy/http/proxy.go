@@ -15,7 +15,6 @@ type Proxy struct {
 	wg     sync.WaitGroup
 	logger logger.Logger
 	server *http.Server
-	ca     *CA
 }
 
 type Option func(*Proxy) error
@@ -40,8 +39,11 @@ os.environ['HTTPS_PROXY'] = 'http://proxy_url:proxy_port'
 // 2. No support for custom signers https://github.com/elazarl/goproxy/blob/7cc037d33fb57d20c2fa7075adaf0e2d2862da78/https.go#L476
 // 3. No custom logger supported https://github.com/elazarl/goproxy/blob/7cc037d33fb57d20c2fa7075adaf0e2d2862da78/ctx.go#L61-L80.
 // 4. Insecure default Ca verifications:
-//		https://github.com/elazarl/goproxy/blob/master/certs.go#L20 used in https://github.com/elazarl/goproxy/blob/master/https.go#L467
+//		https://github.com/elazarl/goproxy/blob/master/certs.go#L20 used in https://github.com/elazarl/goproxy/blob/master/https.go#L467. FIXED.
 //		https://github.com/elazarl/goproxy/blob/master/proxy.go#L219 https://github.com/elazarl/goproxy/blob/7cc037d33fb57d20c2fa7075adaf0e2d2862da78/https.go#L33-L37
+//		https://github.com/elazarl/goproxy/blob/master/https.go#L204
+// 5. Only support P256 https://github.com/elazarl/goproxy/blob/master/signer.go#L87
+// 6. Own PRNG https://github.com/elazarl/goproxy/blob/master/counterecryptor.go#L20. FIXED.
 
 func New(address string, options ...Option) (*Proxy, error) {
 	// Create self.
@@ -80,19 +82,12 @@ func (p *Proxy) createHttpProxy() error {
 	// see https://github.com/elazarl/goproxy/blob/master/proxy.go#L219 so we
 	// must overwrite the TLSClientConfig.
 	httpProxy.Tr = &http.Transport{Proxy: http.ProxyFromEnvironment}
-	httpProxy.CertStore = newCertStorage()
-	if p.ca != nil {
-		if err := setCA(p.ca); err != nil {
-			return err
-		}
-	}
-
 	httpProxy.Verbose = true
 
 	// Set the custom handler.
 	handler := handler{
-		logger:       p.logger,
-		allowedHosts: []string{"www.google.com"},
+		logger:     p.logger,
+		allowHosts: []string{"www.google.com"},
 	}
 	// Set callbacks.
 	httpProxy.OnRequest().DoFunc(func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
@@ -101,6 +96,7 @@ func (p *Proxy) createHttpProxy() error {
 	httpProxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
 		return handler.onResponse(resp, ctx)
 	})
+	httpProxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
 
 	p.server.Handler = httpProxy
 	return nil

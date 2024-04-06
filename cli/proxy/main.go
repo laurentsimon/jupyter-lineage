@@ -100,6 +100,7 @@ func main() {
 		fatal(fmt.Errorf("get working directory: %w", err))
 	}
 	defer f.Close()
+
 	//opts := []logger.Option{logger.WithWriter(f)}
 	opts := []logger.Option{}
 	logger, err := logger.New(opts...)
@@ -116,9 +117,18 @@ func main() {
 	if err != nil {
 		logger.Fatalf("create repo client: %v", err)
 	}
+	// Read CA
+	cert, err := os.Open("../../scripts/ca.cert")
+	if err != nil {
+		fatal(fmt.Errorf("read cert: %w", err))
+	}
+	key, err := os.Open("../../scripts/ca.key")
+	if err != nil {
+		fatal(fmt.Errorf("read key: %w", err))
+	}
 	// Create a new jnproxy.
 	proxy, err := jnproxy.New(*jserverConfig, *httpConfig,
-		repoClient, jnproxy.WithLogger(logger))
+		repoClient, jnproxy.WithLogger(logger), jnproxy.WithCA(jnproxy.CA{Certificate: cert, Key: key}))
 	if err != nil {
 		logger.Fatalf("create proxy: %v", err)
 	}
