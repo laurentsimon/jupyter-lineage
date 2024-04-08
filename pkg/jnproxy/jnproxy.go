@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/errs"
+	httphandler "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/handler/http"
 	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/proxy"
 	httpproxy "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/proxy/http"
@@ -25,14 +26,15 @@ const (
 )
 
 type JNProxy struct {
-	state      state
-	repoClient repository.Client
-	proxies    []proxy.Proxy
-	logger     logger.Logger
-	counter    atomic.Uint64
-	startTime  time.Time
-	provenance []byte
-	ca         *CA
+	state        state
+	repoClient   repository.Client
+	proxies      []proxy.Proxy
+	logger       logger.Logger
+	counter      atomic.Uint64
+	startTime    time.Time
+	provenance   []byte
+	ca           *CA
+	httpHandlers []httphandler.Handler
 }
 
 type Option func(*JNProxy) error
@@ -94,7 +96,7 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 	}
 
 	// TODO: Update this to be in our own repository with better ACLs / permissions.
-	jnpproxy := JNProxy{
+	jnproxy := JNProxy{
 		state:      stateNew,
 		repoClient: repoClient,
 		logger:     logimpl.Logger{},
@@ -102,7 +104,7 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 
 	// Set optional parameters.
 	for _, option := range options {
-		err := option(&jnpproxy)
+		err := option(&jnproxy)
 		if err != nil {
 			return nil, err
 		}
@@ -111,19 +113,22 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 	// Set the proxy last, since we need to have the logger setup.
 	for i := range addressBinding {
 		b := &addressBinding[i]
-		proxy, err := jserver.New(*b, jnpproxy.repoClient, &jnpproxy.counter, jserver.WithLogger(jnpproxy.logger))
+		proxy, err := jserver.New(*b, jnproxy.repoClient, &jnproxy.counter, jserver.WithLogger(jnproxy.logger))
 		if err != nil {
 			return nil, err
 		}
-		jnpproxy.proxies = append(jnpproxy.proxies, proxy)
+		jnproxy.proxies = append(jnproxy.proxies, proxy)
 	}
 
 	// Create the http proxy.
-	opts := []httpproxy.Option{httpproxy.WithLogger(jnpproxy.logger)}
-	if jnpproxy.ca != nil {
+	opts := []httpproxy.Option{
+		httpproxy.WithLogger(jnproxy.logger),
+		httpproxy.WithHandlers(jnproxy.httpHandlers),
+	}
+	if jnproxy.ca != nil {
 		opts = append(opts, httpproxy.WithCA(httpproxy.CA{
-			Certificate: jnpproxy.ca.Certificate,
-			Key:         jnpproxy.ca.Key,
+			Certificate: jnproxy.ca.Certificate,
+			Key:         jnproxy.ca.Key,
 		}))
 	}
 	for i := range httpConfig.addr {
@@ -132,10 +137,10 @@ func New(jServerConfig JServerConfig, httpConfig HttpConfig, repoClient reposito
 		if err != nil {
 			return nil, err
 		}
-		jnpproxy.proxies = append(jnpproxy.proxies, httpProxy)
+		jnproxy.proxies = append(jnproxy.proxies, httpProxy)
 	}
 
-	return &jnpproxy, nil
+	return &jnproxy, nil
 }
 
 func address(ip string, port uint) string {

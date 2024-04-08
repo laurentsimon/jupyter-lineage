@@ -128,7 +128,10 @@ func main() {
 	}
 	// Create a new jnproxy.
 	proxy, err := jnproxy.New(*jserverConfig, *httpConfig,
-		repoClient, jnproxy.WithLogger(logger), jnproxy.WithCA(jnproxy.CA{Certificate: cert, Key: key}))
+		repoClient, jnproxy.WithLogger(logger),
+		jnproxy.WithCA(jnproxy.CA{Certificate: cert, Key: key}),
+		jnproxy.InstallHuggingfaceModel(),
+		jnproxy.InstallDenyHandler())
 	if err != nil {
 		logger.Fatalf("create proxy: %v", err)
 	}

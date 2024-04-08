@@ -16,6 +16,7 @@ os.environ['REQUESTS_CA_BUNDLE']="../certs/ca.cert"
 
 print(DEFAULT_CA_BUNDLE_PATH)
 
+
 # Downloaded under ~/.cache/huggingface/hub/
 
 # Load model directly

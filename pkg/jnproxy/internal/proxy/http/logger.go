@@ -10,3 +10,14 @@ type httpLogger struct {
 func (l httpLogger) Printf(format string, v ...interface{}) {
 	l.logger.Infof("[goproxy]"+format, v...)
 }
+
+func WithLogger(l logger.Logger) Option {
+	return func(p *Proxy) error {
+		return p.setLogger(l)
+	}
+}
+
+func (p *Proxy) setLogger(l logger.Logger) error {
+	p.logger = l
+	return nil
+}

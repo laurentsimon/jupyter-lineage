@@ -7,14 +7,17 @@ import (
 	"sync"
 
 	"github.com/elazarl/goproxy"
+	handler "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/handler/http"
 	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
 )
 
 type Proxy struct {
-	wg     sync.WaitGroup
-	logger logger.Logger
-	server *http.Server
+	wg        sync.WaitGroup
+	logger    logger.Logger
+	server    *http.Server
+	handlers  []handler.Handler
+	callbacks sync.Map
 }
 
 type Option func(*Proxy) error
@@ -54,17 +57,17 @@ func New(address string, options ...Option) (*Proxy, error) {
 		logger: logimpl.Logger{},
 	}
 
-	// Create the http proxy.
-	if err := proxy.createHttpProxy(); err != nil {
-		return nil, err
-	}
-
 	// Set optional parameters.
 	for _, option := range options {
 		err := option(proxy)
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	// Create the http proxy.
+	if err := proxy.createHttpProxy(); err != nil {
+		return nil, err
 	}
 
 	return proxy, nil
@@ -83,41 +86,65 @@ func (p *Proxy) createHttpProxy() error {
 	// must overwrite the TLSClientConfig.
 	httpProxy.Tr = &http.Transport{Proxy: http.ProxyFromEnvironment}
 	httpProxy.Verbose = true
-
 	// Set the custom handler.
 	/* TODO: handler will need:
 	set of allow / deny, regex, etc list
 	a callback (stateful?) to stream the data back (using session ID)
 	need to know when request is over, and return a resource descriptor.
 	*/
-	handler := handler{
-		logger:     p.logger,
-		allowHosts: []string{"www.google.com", "huggingface.co", "cdn-lfs.huggingface.co"},
-		// denyHosts, allowURLHost, etc
-	}
 	// Set callbacks.
 	httpProxy.OnRequest().DoFunc(func(r *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
-		// TODO: here we need to go thru handlers
-		return handler.onRequest(r, ctx)
+		if p.handlers == nil {
+			p.logger.Debugf("[http] no handler installed (%q)", r.Host)
+			return r, nil
+		}
+		for _, h := range p.handlers {
+			req, resp, ok, err := h.OnRequest(r, handler.Context{ID: ctx.Session, Logger: p.logger})
+			if err != nil {
+				// TODO: More logging.
+				p.logger.Errorf("[http] handler (%q) OnRequest (%q) error: %v", h.Name(), r.Host, err)
+				continue
+			}
+			if resp != nil {
+				p.logger.Debugf("[http] handler (%q) created a request (%q)", h.Name(), r.Host)
+				return req, resp
+			}
+			if !ok {
+				p.logger.Debugf("[http] handler (%q) not interested in host (%q)", h.Name(), r.Host)
+				continue
+			}
+			// Keep track of the handler to call back.
+			p.callbacks.Store(ctx.Session, h)
+			return req, resp
+		}
+		return r, nil
 	})
 	httpProxy.OnResponse().DoFunc(func(resp *http.Response, ctx *goproxy.ProxyCtx) *http.Response {
-		// TODO: here we need to go thru handlers
-		return handler.onResponse(resp, ctx)
+		if p.handlers == nil {
+			return resp
+		}
+		defer p.callbacks.Delete(ctx.Session)
+		val, ok := p.callbacks.Load(ctx.Session)
+		if !ok {
+			// TODO: configurable what to do here.
+			p.logger.Debugf("[http] host (%q) has not handler", ctx.Req.Host)
+		}
+		v, ok := val.(handler.Handler)
+		if !ok {
+			p.logger.Errorf("[http] map contains a non handler type (%T)", val)
+			return goproxy.NewResponse(ctx.Req, goproxy.ContentTypeText, http.StatusInternalServerError, "InternalServerError")
+		}
+		p.logger.Debugf("[http] handler (%q) handling response (%q)", v.Name(), ctx.Req.Host)
+		r, err := v.OnResponse(resp, handler.Context{ID: ctx.Session, Req: ctx.Req, Logger: p.logger})
+		if err != nil {
+			p.logger.Errorf("[http] handler (%q) OnResponse (%q) error: %v", v.Name(), ctx.Req.Host, err)
+			return goproxy.NewResponse(ctx.Req, goproxy.ContentTypeText, http.StatusInternalServerError, "InternalServerError")
+		}
+		return r
 	})
 	httpProxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
 
 	p.server.Handler = httpProxy
-	return nil
-}
-
-func WithLogger(l logger.Logger) Option {
-	return func(p *Proxy) error {
-		return p.setLogger(l)
-	}
-}
-
-func (p *Proxy) setLogger(l logger.Logger) error {
-	p.logger = l
 	return nil
 }
 

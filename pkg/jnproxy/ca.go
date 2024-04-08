@@ -14,17 +14,17 @@ type CA struct {
 }
 
 func WithCA(ca CA) Option {
-	return func(s *JNProxy) error {
-		return s.setCA(ca)
+	return func(p *JNProxy) error {
+		return p.setCA(ca)
 	}
 }
 
-func (s *JNProxy) setCA(ca CA) error {
+func (p *JNProxy) setCA(ca CA) error {
 	if err := ca.isValid(); err != nil {
 		return err
 	}
 	// TODO: validate signer
-	s.ca = &ca
+	p.ca = &ca
 	return nil
 }
 
