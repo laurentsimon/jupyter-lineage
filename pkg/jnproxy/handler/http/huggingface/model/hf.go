@@ -37,10 +37,6 @@ func (h *Model) OnRequest(req *http.Request, ctx handler.Context) (*http.Request
 }
 
 func (h *Model) OnResponse(resp *http.Response, ctx handler.Context) (*http.Response, error) {
-	tf, ok := resp.Header["Transfer-Encoding"]
-	if ok && slices.Contains(tf, "chunked") {
-		return handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, "chunked not supported"), nil
-	}
 	b, _ := ioutil.ReadAll(resp.Body)
 	//ctx.Logger.Debugf("[http]: received (%q):\nHeader:\n%q\nBody:\n%q", ctx.Req.Host, resp.Header, b)
 	ctx.Logger.Debugf("[http]: received (%q):\nHeader:\n%q", ctx.Req.Host, resp.Header)

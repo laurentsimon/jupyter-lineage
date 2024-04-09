@@ -22,5 +22,6 @@ print(DEFAULT_CA_BUNDLE_PATH)
 # Load model directly
 from transformers import AutoTokenizer, AutoModel
 
+# microsoft/conditional-detr-resnet-50
 tokenizer = AutoTokenizer.from_pretrained("microsoft/trocr-small-handwritten")
 model = AutoModel.from_pretrained("microsoft/trocr-small-handwritten")

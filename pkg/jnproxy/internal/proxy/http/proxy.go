@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
@@ -129,6 +130,11 @@ func (p *Proxy) createHttpProxy() error {
 			return resp
 		}
 		defer p.callbacks.Delete(ctx.Session)
+		// TODO(#5): Support chunked encoding.
+		tf, ok := resp.Header["Transfer-Encoding"]
+		if ok && slices.Contains(tf, "chunked") {
+			return handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, "chunked not supported")
+		}
 		val, ok := p.callbacks.Load(ctx.Session)
 		if !ok {
 			// TODO: configurable what to do here.

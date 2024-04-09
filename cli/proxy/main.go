@@ -18,7 +18,7 @@ func usage(prog string) {
 	msg := "" +
 		"Usage: %s srcIP, srcShellPort, srcStdinPort, srcIOPubPort, srcControlPort, srcHeartBeatPort\n" +
 		"dstIP, dstShellPort, dstStdinPort, dstIOPubPort, dstControlPort, dstHeartBeatPort\n" +
-		"provenancePath"
+		"provenancePath, certDir"
 	utils.Log(msg, prog)
 	os.Exit(1)
 }
@@ -30,7 +30,7 @@ func fatal(e error) {
 
 func main() {
 	arguments := os.Args[1:]
-	if len(arguments) != 13 {
+	if len(arguments) != 14 {
 		usage(os.Args[0])
 	}
 
@@ -49,10 +49,12 @@ func main() {
 	dstControlPort := arguments[10]
 	dstHeartbeatPort := arguments[11]
 	repoDir := arguments[12]
+	certDir := arguments[13]
 
-	utils.Log("%q %q %q %q %q %q %q %q %q %q %q %q\n",
+	utils.Log("%q %q %q %q %q %q %q %q %q %q %q %q %q\n",
 		srcIP, srcShellPort, srcStdinPort, srcIOPubPort, srcControlPort, srcHeartbeatPort,
 		dstIP, dstShellPort, dstStdinPort, dstIOPubPort, dstControlPort, dstHeartbeatPort,
+		certDir,
 	)
 
 	jserverConfig, err := jnproxy.JServerConfigNew(
@@ -101,8 +103,8 @@ func main() {
 	}
 	defer f.Close()
 
-	//opts := []logger.Option{logger.WithWriter(f)}
-	opts := []logger.Option{}
+	opts := []logger.Option{logger.WithWriter(f)}
+	//opts := []logger.Option{}
 	logger, err := logger.New(opts...)
 	if err != nil {
 		fatal(fmt.Errorf("logger new: %w", err))
@@ -118,11 +120,11 @@ func main() {
 		logger.Fatalf("create repo client: %v", err)
 	}
 	// Read CA
-	cert, err := os.Open("../../scripts/certs/ca.cert")
+	cert, err := os.Open(filepath.Join(certDir, "ca.cert"))
 	if err != nil {
 		fatal(fmt.Errorf("read cert: %w", err))
 	}
-	key, err := os.Open("../../scripts/certs/ca.key")
+	key, err := os.Open(filepath.Join(certDir, "ca.key"))
 	if err != nil {
 		fatal(fmt.Errorf("read key: %w", err))
 	}

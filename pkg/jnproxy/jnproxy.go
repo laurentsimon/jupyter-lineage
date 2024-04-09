@@ -189,7 +189,6 @@ func (s *JNProxy) Stop() error {
 	return nil
 }
 
-// todo: support adding dependencies.
 func (s *JNProxy) Provenance(builder slsa.Builder, subjects []slsa.Subject, repoURI string) ([]byte, error) {
 	if s.state != stateFinished {
 		return nil, fmt.Errorf("%w: state %q", errs.ErrorInvalid, s.state)
