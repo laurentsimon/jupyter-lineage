@@ -6,6 +6,7 @@ import (
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/errs"
 	handler "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/handler/http"
+	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
 const name = "Deny"
@@ -35,6 +36,6 @@ func (h *Deny) OnResponse(resp *http.Response, ctx handler.Context) (*http.Respo
 	return resp, nil
 }
 
-func (h *Deny) Results() (handler.Results, error) {
-	return handler.Results{}, nil
+func (h *Deny) Dependencies(ctx handler.Context) ([]slsa.ResourceDescriptor, error) {
+	return nil, nil
 }

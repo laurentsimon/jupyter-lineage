@@ -9,9 +9,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/proxy"
+
 	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
 	"github.com/laurentsimon/jupyter-lineage/pkg/repository"
+	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
 type AddressBinding struct {
@@ -83,6 +86,14 @@ func (p *Proxy) Start() error {
 	p.wg.Add(1)
 	go p.serve()
 	return nil
+}
+
+func (p *Proxy) Type() proxy.Type {
+	return proxy.TypeUserSource
+}
+
+func (p *Proxy) Dependencies() ([]slsa.ResourceDescriptor, error) {
+	return nil, nil
 }
 
 func (p *Proxy) serve() {

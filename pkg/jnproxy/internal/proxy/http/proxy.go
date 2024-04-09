@@ -6,18 +6,23 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
+
 	"github.com/elazarl/goproxy"
 	handler "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/handler/http"
 	logimpl "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/logger"
+	"github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/internal/proxy"
 	"github.com/laurentsimon/jupyter-lineage/pkg/logger"
 )
 
 type Proxy struct {
-	wg        sync.WaitGroup
-	logger    logger.Logger
-	server    *http.Server
-	handlers  []handler.Handler
-	callbacks sync.Map
+	wg           sync.WaitGroup
+	logger       logger.Logger
+	server       *http.Server
+	handlers     []handler.Handler
+	callbacks    sync.Map
+	dependencies []slsa.ResourceDescriptor
+	mu           sync.Mutex // To add dependencies
 }
 
 type Option func(*Proxy) error
@@ -140,11 +145,27 @@ func (p *Proxy) createHttpProxy() error {
 			p.logger.Errorf("[http] handler (%q) OnResponse (%q) error: %v", v.Name(), ctx.Req.Host, err)
 			return goproxy.NewResponse(ctx.Req, goproxy.ContentTypeText, http.StatusInternalServerError, "InternalServerError")
 		}
+		deps, err := v.Dependencies(handler.Context{Logger: p.logger})
+		if err != nil {
+			p.logger.Errorf("[http] handler (%q) Dependencies (%q) error: %v", v.Name(), ctx.Req.Host, err)
+			return goproxy.NewResponse(ctx.Req, goproxy.ContentTypeText, http.StatusInternalServerError, "InternalServerError")
+		}
+		if err := p.recordDependencies(deps); err != nil {
+			p.logger.Errorf("[http] handler (%q) record dependencies (%q) error: %v", v.Name(), ctx.Req.Host, err)
+			return goproxy.NewResponse(ctx.Req, goproxy.ContentTypeText, http.StatusInternalServerError, "InternalServerError")
+		}
 		return r
 	})
 	httpProxy.OnRequest().HandleConnect(goproxy.AlwaysMitm)
 
 	p.server.Handler = httpProxy
+	return nil
+}
+
+func (p *Proxy) recordDependencies(deps []slsa.ResourceDescriptor) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.dependencies = append(p.dependencies, deps...)
 	return nil
 }
 
@@ -166,6 +187,14 @@ func (p *Proxy) Stop() error {
 	}
 	p.wg.Wait()
 	return nil
+}
+
+func (p *Proxy) Type() proxy.Type {
+	return proxy.TypeRuntime
+}
+
+func (p *Proxy) Dependencies() ([]slsa.ResourceDescriptor, error) {
+	return p.dependencies, nil
 }
 
 func (p *Proxy) serve() {

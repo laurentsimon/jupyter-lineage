@@ -14,7 +14,7 @@ type Provenance struct {
 
 type Option func(*Provenance) error
 
-func New(builder slsa.Builder, subjects []slsa.Subject, repo Dependency, opts ...Option) (*Provenance, error) {
+func New(builder slsa.Builder, subjects []slsa.Subject, repo slsa.ResourceDescriptor, opts ...Option) (*Provenance, error) {
 	p := Provenance{
 		attestation: attestation{
 			Header: Header{
@@ -25,7 +25,7 @@ func New(builder slsa.Builder, subjects []slsa.Subject, repo Dependency, opts ..
 			Predicate: Predicate{
 				BuildDefinition: BuildDefinition{
 					BuildType:            buildType,
-					ResolvedDependencies: append([]Dependency{}, repo), // NOTE: Make a copy.
+					ResolvedDependencies: append([]slsa.ResourceDescriptor{}, repo), // NOTE: Make a copy.
 				},
 				RunDetails: RunDetails{
 					Builder: builder, // TODO: Should make a copy?
@@ -44,13 +44,13 @@ func New(builder slsa.Builder, subjects []slsa.Subject, repo Dependency, opts ..
 	return &p, nil
 }
 
-func (p *Provenance) AddDependencies(deps []Dependency) Option {
+func AddDependencies(deps []slsa.ResourceDescriptor) Option {
 	return func(p *Provenance) error {
 		return p.addDependencies(deps)
 	}
 }
 
-func (p *Provenance) addDependencies(deps []Dependency) error {
+func (p *Provenance) addDependencies(deps []slsa.ResourceDescriptor) error {
 	p.attestation.Predicate.BuildDefinition.ResolvedDependencies = append(p.attestation.Predicate.BuildDefinition.ResolvedDependencies, deps...)
 	return nil
 }

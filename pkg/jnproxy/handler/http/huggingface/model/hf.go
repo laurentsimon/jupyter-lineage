@@ -19,7 +19,8 @@ import (
 const name = "HuggingfaceModel"
 
 type Model struct {
-	m sync.Map
+	mu sync.Mutex
+	m  sync.Map
 }
 
 func New() (*Model, error) {
@@ -121,18 +122,23 @@ func (h *Model) OnResponse(resp *http.Response, ctx handler.Context) (*http.Resp
 	return resp, nil
 }
 
-func (h *Model) Results() (handler.Results, error) {
-	var r handler.Results
+func (h *Model) Dependencies(ctx handler.Context) ([]slsa.ResourceDescriptor, error) {
+	var deps []slsa.ResourceDescriptor
 	var e error
+	defer h.mu.Unlock()
+	h.mu.Lock()
 	h.m.Range(func(key, value any) bool {
 		v, ok := value.(slsa.ResourceDescriptor)
 		if !ok {
 			e = fmt.Errorf("[%s]: invalid type (%T) for key (%q)", name, value, key)
 			return false
 		}
-		r.Resources = append(r.Resources, v)
+		deps = append(deps, v)
 		return true
 	})
-
-	return r, e
+	h.m.Range(func(key, value any) bool {
+		h.m.Delete(key)
+		return true
+	})
+	return deps, e
 }

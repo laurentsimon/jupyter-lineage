@@ -201,13 +201,28 @@ func (s *JNProxy) Provenance(builder slsa.Builder, subjects []slsa.Subject, repo
 	if err != nil {
 		return nil, err
 	}
-	repo := slsaimpl.Dependency{
+	repo := slsa.ResourceDescriptor{
 		DigestSet: digestSet,
 		URI:       repoURI,
 	}
+	// Get runtime dependencies.
+	var deps []slsa.ResourceDescriptor
+	for i := range s.proxies {
+		p := s.proxies[i]
+		if p.Type() == proxy.TypeUserSource {
+			continue
+		}
+		d, err := p.Dependencies()
+		if err != nil {
+			return nil, err
+		}
+		deps = append(deps, d...)
+	}
+
 	prov, err := slsaimpl.New(builder, subjects, repo,
 		slsaimpl.WithStartTime(s.startTime),
 		slsaimpl.WithFinishTime(time.Now()),
+		slsaimpl.AddDependencies(deps),
 	)
 	if err != nil {
 		return nil, err

@@ -4,11 +4,6 @@ import "github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 
 // See https://github.com/in-toto/in-toto-golang/tree/master/in_toto/slsa_provenance/v1
 
-type Dependency struct {
-	URI       string         `json:"uri,omitempty"`
-	DigestSet slsa.DigestSet `json:"digest,omitempty"`
-}
-
 type Header struct {
 	Type          string         `json:"_type"`
 	PredicateType string         `json:"predicateType"`
@@ -16,9 +11,9 @@ type Header struct {
 }
 
 type BuildDefinition struct {
-	BuildType            string       `json:"buildType"`
-	InternalParameters   interface{}  `json:"internalParameters,omitempty"`
-	ResolvedDependencies []Dependency `json:"resolvedDependencies,omitempty"`
+	BuildType            string                    `json:"buildType"`
+	InternalParameters   interface{}               `json:"internalParameters,omitempty"`
+	ResolvedDependencies []slsa.ResourceDescriptor `json:"resolvedDependencies,omitempty"`
 }
 
 type RunDetails struct {

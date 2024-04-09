@@ -11,14 +11,10 @@ import (
 
 // Context contains metadata about callbacks.
 type Context struct {
+	// TODO: need to ensure no collision here.
 	ID     int64         // Unique ID identifying the request <-> response
 	Req    *http.Request // Request that led to the callback.
 	Logger logger.Logger
-}
-
-type Results struct {
-	Resources []slsa.ResourceDescriptor
-	// Add other fields we may need here.
 }
 
 type Handler interface {
@@ -34,8 +30,9 @@ type Handler interface {
 	// OnResponse is called when a server responds to a client request.
 	// ctx.Req point to the origial request
 	OnResponse(resp *http.Response, ctx Context) (*http.Response, error)
-	// Results returns the results identified by the handler.
-	Results() (Results, error)
+	// Dependencies returns the results identified by the handler.
+	// On return, the function must erase the dependencies from its internal state.
+	Dependencies(ctx Context) ([]slsa.ResourceDescriptor, error)
 }
 
 func NewResponse(r *http.Request, contentType string, status int, body string) *http.Response {
