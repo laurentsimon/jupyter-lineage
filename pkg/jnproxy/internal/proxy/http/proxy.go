@@ -171,6 +171,7 @@ func (p *Proxy) createHttpProxy() error {
 func (p *Proxy) recordDependencies(deps []slsa.ResourceDescriptor) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// TODO(#10): Remove duplicate entries
 	p.dependencies = append(p.dependencies, deps...)
 	return nil
 }
