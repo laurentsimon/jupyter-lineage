@@ -9,7 +9,7 @@ import (
 	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
-const name = "Deny"
+const name = "Deny/v0.1"
 
 type Deny struct {
 }

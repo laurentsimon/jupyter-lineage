@@ -6,40 +6,41 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 
 	handler "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/handler/http"
 )
 
-const name = "HuggingfaceModel"
-
 type Model struct {
-	mu sync.Mutex
-	m  sync.Map
+	handler.HandlerImpl
 }
 
 func New() (*Model, error) {
-	return &Model{}, nil
-}
-
-func (h *Model) Name() string {
-	return name
+	self := &Model{}
+	self.SetName("HuggingfaceModel/v0.1")
+	return self, nil
 }
 
 func (h *Model) OnRequest(req *http.Request, ctx handler.Context) (*http.Request, *http.Response, bool, error) {
-	list := []string{"huggingface.co", "cdn-lfs.huggingface.co"}
-	return req, nil, slices.Contains(list, req.Host), nil
+	absPath, err := handler.AbsURLPath(req.URL.Path)
+	if err != nil {
+		msg := fmt.Sprintf("[http/%s] %v", h.Name(), err)
+		ctx.Logger.Errorf(msg)
+		return req, handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, msg), false, nil
+	}
+	// WARNING: absPath prefix must start and and with '/'.
+	interested := (req.Host == "huggingface.co" && !strings.Contains(absPath, "/datasets/")) ||
+		(req.Host == "cdn-lfs.huggingface.co" && !strings.Contains(absPath, "/datasets/"))
+	return req, nil, interested, nil
 }
 
 func (h *Model) OnResponse(resp *http.Response, ctx handler.Context) (*http.Response, error) {
 	b, _ := ioutil.ReadAll(resp.Body)
 	//ctx.Logger.Debugf("[http]: received (%q):\nHeader:\n%q\nBody:\n%q", ctx.Req.Host, resp.Header, b)
-	ctx.Logger.Debugf("[http]: received (%q):\nHeader:\n%q", ctx.Req.Host, resp.Header)
+	ctx.Logger.Debugf("[http]: received (%q %q):\nHeader:\n%q", ctx.Req.Method, ctx.Req.Host+ctx.Req.URL.Path, resp.Header)
 	if ctx.Req.Method == "HEAD" {
 		return resp, nil
 	}
@@ -82,7 +83,7 @@ func (h *Model) OnResponse(resp *http.Response, ctx handler.Context) (*http.Resp
 	header := resp.Header
 	hLen, err := strconv.Atoi(header.Get("Content-Length"))
 	if err != nil {
-		msg := fmt.Sprintf("[http/%s] conversion to int: %v", name, err)
+		msg := fmt.Sprintf("[http/%s] conversion to int: %v", h.Name(), err)
 		ctx.Logger.Errorf(msg)
 		return handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, msg), nil
 	}
@@ -101,40 +102,31 @@ func (h *Model) OnResponse(resp *http.Response, ctx handler.Context) (*http.Resp
 	hash := sha256.New()
 	hash.Write(b)
 	hh := fmt.Sprintf("%x", hash.Sum(nil))
+	aLen64 := uint64(len(b))
 	rd := slsa.ResourceDescriptor{
 		// WARNING: We're not recording GET parameters.
 		DownloadLocation: ctx.Req.URL.Host + ctx.Req.URL.Path,
 		URI:              ctx.Req.URL.Host + ctx.Req.URL.Path,
-		ContentType:      strings.Join(contentType, ";"),
+		ContentLength:    &aLen64,
 		DigestSet: slsa.DigestSet{
 			"sha256": hh,
+		},
+		Annotations: map[string]any{
+			// NOTE: No header recorded.
+			"Handler": h.Name(),
+			"HTTP": map[string]any{
+				"Method": ctx.Req.Method,
+				"Header": map[string]any{
+					"Content-Length": hLen,
+					"Content-Type":   strings.Join(contentType, ";"),
+				},
+			},
 		},
 	}
 	if xRepoCommit != "" {
 		rd.DigestSet["hint:gitCommit"] = xRepoCommit
 	}
-	h.m.Store(ctx.ID, rd)
+	h.Store(ctx.ID, rd)
 	ctx.Logger.Debugf("[http]: RD %q", rd)
 	return resp, nil
-}
-
-func (h *Model) Dependencies(ctx handler.Context) ([]slsa.ResourceDescriptor, error) {
-	var deps []slsa.ResourceDescriptor
-	var e error
-	defer h.mu.Unlock()
-	h.mu.Lock()
-	h.m.Range(func(key, value any) bool {
-		v, ok := value.(slsa.ResourceDescriptor)
-		if !ok {
-			e = fmt.Errorf("[%s]: invalid type (%T) for key (%q)", name, value, key)
-			return false
-		}
-		deps = append(deps, v)
-		return true
-	})
-	h.m.Range(func(key, value any) bool {
-		h.m.Delete(key)
-		return true
-	})
-	return deps, e
 }

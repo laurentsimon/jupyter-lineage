@@ -1,1 +1,4 @@
 transformers
+pillow
+torch
+datasets

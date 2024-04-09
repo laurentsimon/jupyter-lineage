@@ -112,11 +112,11 @@ func (p *Proxy) createHttpProxy() error {
 				continue
 			}
 			if resp != nil {
-				p.logger.Debugf("[http] handler (%q) created a request (%q)", h.Name(), r.Host)
+				p.logger.Debugf("[http] handler (%q) created a request (%q) of status %d", h.Name(), r.Host, resp.StatusCode)
 				return req, resp
 			}
 			if !ok {
-				p.logger.Debugf("[http] handler (%q) not interested in host (%q)", h.Name(), r.Host)
+				p.logger.Debugf("[http] handler (%q) not interested in request (%q)", h.Name(), r.Host+r.URL.Path)
 				continue
 			}
 			// Keep track of the handler to call back.
@@ -130,6 +130,10 @@ func (p *Proxy) createHttpProxy() error {
 			return resp
 		}
 		defer p.callbacks.Delete(ctx.Session)
+		if resp.StatusCode == http.StatusForbidden {
+			p.logger.Debugf("[http] host (%q) relay Forbidden response", ctx.Req.Host)
+			return resp
+		}
 		// TODO(#5): Support chunked encoding.
 		tf, ok := resp.Header["Transfer-Encoding"]
 		if ok && slices.Contains(tf, "chunked") {
@@ -139,13 +143,14 @@ func (p *Proxy) createHttpProxy() error {
 		if !ok {
 			// TODO: configurable what to do here.
 			p.logger.Debugf("[http] host (%q) has not handler", ctx.Req.Host)
+			return goproxy.NewResponse(ctx.Req, goproxy.ContentTypeText, http.StatusInternalServerError, "InternalServerError")
 		}
 		v, ok := val.(handler.Handler)
 		if !ok {
 			p.logger.Errorf("[http] map contains a non handler type (%T)", val)
 			return goproxy.NewResponse(ctx.Req, goproxy.ContentTypeText, http.StatusInternalServerError, "InternalServerError")
 		}
-		p.logger.Debugf("[http] handler (%q) handling response (%q)", v.Name(), ctx.Req.Host)
+		p.logger.Debugf("[http] handler (%q) handling response (%q)", v.Name(), ctx.Req.Host+ctx.Req.URL.Path)
 		r, err := v.OnResponse(resp, handler.Context{ID: ctx.Session, Req: ctx.Req, Logger: p.logger})
 		if err != nil {
 			p.logger.Errorf("[http] handler (%q) OnResponse (%q) error: %v", v.Name(), ctx.Req.Host, err)
@@ -172,6 +177,7 @@ func (p *Proxy) recordDependencies(deps []slsa.ResourceDescriptor) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	// TODO(#10): Remove duplicate entries
+	// TODO(#11): Validate the presence of handler name / version.
 	p.dependencies = append(p.dependencies, deps...)
 	return nil
 }

@@ -31,15 +31,15 @@ type ResourceDescriptor struct {
 	// The MIME Type (i.e., media type) of the described resource or artifact.
 	MediaType string `json:"mediaType,omitempty"`
 
-	// The http content type (i.e., media type) of the described resource or artifact.
-	ContentType string `json:"contentType,omitempty"`
-
 	// The contents of the resource or artifact. This field is REQUIRED unless
 	// either uri or digest is set.
 	Content []byte `json:"content,omitempty"`
 
+	// The content length of the resource or artifact.
+	ContentLength *uint64 `json:"contentLength,omitempty"`
+
 	// This field MAY be used to provide additional information or metadata
 	// about the resource or artifact that may be useful to the consumer when
 	// evaluating the attestation against a policy.
-	Annotations map[string]interface{} `json:"annotations,omitempty"`
+	Annotations map[string]any `json:"annotations,omitempty"`
 }

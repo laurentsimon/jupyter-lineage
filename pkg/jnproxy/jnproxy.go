@@ -182,9 +182,9 @@ func (s *JNProxy) Stop() error {
 		}
 	}
 
-	if err := s.repoClient.Close(); err != nil {
-		s.logger.Errorf("repo close: %v", err)
-	}
+	// if err := s.repoClient.Close(); err != nil {
+	// 	s.logger.Errorf("repo close: %v", err)
+	// }
 	s.state = stateFinished
 	return nil
 }
@@ -196,10 +196,11 @@ func (s *JNProxy) Provenance(builder slsa.Builder, subjects []slsa.Subject, repo
 	if s.provenance != nil {
 		return s.provenance, nil
 	}
-	digestSet, err := s.repoClient.Digest()
-	if err != nil {
-		return nil, err
-	}
+	// digestSet, err := s.repoClient.Digest()
+	// if err != nil {
+	// 	return nil, err
+	// }
+	digestSet := slsa.DigestSet{"bla": "val"}
 	repo := slsa.ResourceDescriptor{
 		DigestSet: digestSet,
 		URI:       repoURI,

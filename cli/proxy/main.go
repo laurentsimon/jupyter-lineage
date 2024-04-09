@@ -103,8 +103,8 @@ func main() {
 	}
 	defer f.Close()
 
-	opts := []logger.Option{logger.WithWriter(f)}
-	//opts := []logger.Option{}
+	//opts := []logger.Option{logger.WithWriter(f)}
+	opts := []logger.Option{}
 	logger, err := logger.New(opts...)
 	if err != nil {
 		fatal(fmt.Errorf("logger new: %w", err))
@@ -133,7 +133,9 @@ func main() {
 		repoClient, jnproxy.WithLogger(logger),
 		jnproxy.WithCA(jnproxy.CA{Certificate: cert, Key: key}),
 		jnproxy.InstallHuggingfaceModel(),
-		jnproxy.InstallDenyHandler())
+		jnproxy.InstallHuggingfaceDataset(),
+		jnproxy.InstallAllowHandler())
+	//jnproxy.InstallDenyHandler())
 	if err != nil {
 		logger.Fatalf("create proxy: %v", err)
 	}
