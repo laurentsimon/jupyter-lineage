@@ -2,6 +2,7 @@ package dataset
 
 import (
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"fmt"
 	"io/ioutil"
@@ -73,31 +74,67 @@ func (h *Dataset) OnResponse(resp *http.Response, ctx handler.Context) (*http.Re
 		ctx.Logger.Errorf(msg)
 		return handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, msg), nil
 	}
-	xRepoCommit := header.Get("X-Repo-Commit")
-	hash := sha256.New()
-	hash.Write(b)
-	hh := fmt.Sprintf("%x", hash.Sum(nil))
-	aLen64 := uint64(len(b))
-	rd := slsa.ResourceDescriptor{
-		// WARNING: We're not recording GET parameters.
-		DownloadLocation: ctx.Req.URL.Host + ctx.Req.URL.Path,
-		URI:              ctx.Req.URL.Host + ctx.Req.URL.Path,
-		ContentLength:    &aLen64,
-		DigestSet: slsa.DigestSet{
-			"sha256": hh,
-		},
-		Annotations: map[string]any{
-			// NOTE: No header recorded.
-			"Handler": h.Name(),
-			"HTTP": map[string]any{
-				"Method": ctx.Req.Method,
-				"Header": map[string]any{
-					"Content-Length": hLen,
-					"Content-Type":   strings.Join(contentType, ";"),
+
+	var rd slsa.ResourceDescriptor
+	if contentType[0] == "application/x-gzip" {
+		// https://pkg.go.dev/compress/gzip#Reader.Read
+		reader := bytes.NewReader(b)
+		outputBytes := make([]byte, len(b))
+		gzipReader, err := gzip.NewReader(reader)
+		if err != nil {
+			msg := fmt.Sprintf("gzip reader: %v", err)
+			ctx.Logger.Errorf(msg)
+			return handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, msg), nil
+		}
+		_, err = gzipReader.Read(outputBytes)
+		if err != nil {
+			msg := fmt.Sprintf("gzip read: %v", err)
+			ctx.Logger.Errorf(msg)
+			return handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, msg), nil
+		}
+		/*
+			// Extract zipped files.
+			// https://pkg.go.dev/archive/zip#NewReader
+			zipReader, err := zip.NewReader(reader, int64(len(b)))
+			if err != nil {
+				msg := fmt.Sprintf("zip reader: %v", err)
+				ctx.Logger.Errorf(msg)
+				return handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, msg), nil
+			}
+			for _, f := range zipReader.File {
+				// f.FileInfo().IsDir()
+				// fileInArchive, err := f.Open()
+				// io.Copy(dstFile, fileInArchive)
+				ctx.Logger.Debugf("unzipping file ", f.Name, f.CompressedSize, f.UncompressedSize64)
+			}
+		*/
+	} else {
+		hash := sha256.New()
+		hash.Write(b)
+		hh := fmt.Sprintf("%x", hash.Sum(nil))
+		aLen64 := uint64(len(b))
+		rd = slsa.ResourceDescriptor{
+			// WARNING: We're not recording GET parameters.
+			DownloadLocation: ctx.Req.URL.Host + ctx.Req.URL.Path,
+			URI:              ctx.Req.URL.Host + ctx.Req.URL.Path,
+			ContentLength:    &aLen64,
+			DigestSet: slsa.DigestSet{
+				"sha256": hh,
+			},
+			Annotations: map[string]any{
+				// NOTE: No header recorded.
+				"Handler": h.Name(),
+				"HTTP": map[string]any{
+					"Method": ctx.Req.Method,
+					"Header": map[string]any{
+						"Content-Length": hLen,
+						"Content-Type":   strings.Join(contentType, ";"),
+					},
 				},
 			},
-		},
+		}
 	}
+	xRepoCommit := header.Get("X-Repo-Commit")
 	if xRepoCommit != "" {
 		rd.DigestSet["hint:gitCommit"] = xRepoCommit
 	}
