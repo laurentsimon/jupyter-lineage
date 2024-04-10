@@ -14,23 +14,23 @@ import (
 	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
-type AllowCb interface {
+type Config interface {
 	// Caller decides if they want to record the response.
 	// For example, they may decide not to record 0-length payload
 	// responses if they believe the headers are not manipulable by developers.
 	WantRecord(*http.Response, handler.Context) (bool, *http.Header)
 }
 
-type Option func(*Allow) error
+type Option func(*Handler) error
 
-type Allow struct {
+type Handler struct {
 	handler.HandlerImpl
-	cb AllowCb
+	config Config
 }
 
-func New(options ...Option) (*Allow, error) {
-	self := &Allow{}
-	self.SetName("Allow/v0.1")
+func New(options ...Option) (*Handler, error) {
+	self := &Handler{}
+	self.SetName("Handler/v0.1")
 	// Set optional parameters.
 	for _, option := range options {
 		err := option(self)
@@ -42,19 +42,19 @@ func New(options ...Option) (*Allow, error) {
 	return self, nil
 }
 
-func (h *Allow) OnRequest(req *http.Request, ctx handler.Context) (*http.Request, *http.Response, bool, error) {
+func (h *Handler) OnRequest(req *http.Request, ctx handler.Context) (*http.Request, *http.Response, bool, error) {
 	return req, nil, true, nil
 }
 
-func (h *Allow) wantRecord(resp *http.Response, ctx handler.Context) (bool, *http.Header) {
-	if h.cb == nil {
+func (h *Handler) wantRecord(resp *http.Response, ctx handler.Context) (bool, *http.Header) {
+	if h.config == nil {
 		// By default, we do not record headers.
 		return true, nil
 	}
-	return h.cb.WantRecord(resp, ctx)
+	return h.config.WantRecord(resp, ctx)
 }
 
-func (h *Allow) OnResponse(resp *http.Response, ctx handler.Context) (*http.Response, error) {
+func (h *Handler) OnResponse(resp *http.Response, ctx handler.Context) (*http.Response, error) {
 	rec, headerRecord := h.wantRecord(resp, ctx)
 	if !rec {
 		return nil, nil
@@ -152,9 +152,9 @@ func constructURL(host, path string, q url.Values) string {
 	return url
 }
 
-func WithCallback(cb AllowCb) Option {
-	return func(h *Allow) error {
-		h.cb = cb
+func WithConfig(c Config) Option {
+	return func(h *Handler) error {
+		h.config = c
 		return nil
 	}
 }

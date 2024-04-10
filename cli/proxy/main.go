@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -11,6 +12,8 @@ import (
 	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/repository"
 	"github.com/laurentsimon/jupyter-lineage/cli/proxy/internal/utils"
 	"github.com/laurentsimon/jupyter-lineage/pkg/jnproxy"
+	handler "github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/handler/http"
+	"github.com/laurentsimon/jupyter-lineage/pkg/jnproxy/handler/http/allow"
 	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
@@ -26,6 +29,13 @@ func usage(prog string) {
 func fatal(e error) {
 	utils.Log("error: %v\n", e)
 	os.Exit(2)
+}
+
+type allowConfig struct{}
+
+func (c *allowConfig) WantRecord(*http.Response, handler.Context) (bool, *http.Header) {
+	// Record all responses but not the header information.
+	return true, nil
 }
 
 func main() {
@@ -134,7 +144,7 @@ func main() {
 		jnproxy.WithCA(jnproxy.CA{Certificate: cert, Key: key}),
 		jnproxy.InstallHuggingfaceModel(),
 		jnproxy.InstallHuggingfaceDataset(),
-		jnproxy.InstallAllowHandler())
+		jnproxy.InstallAllowHandler(allow.WithConfig(&allowConfig{})))
 	//jnproxy.InstallDenyHandler())
 	if err != nil {
 		logger.Fatalf("create proxy: %v", err)

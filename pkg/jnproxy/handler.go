@@ -89,16 +89,13 @@ func (p *JNProxy) installDenyHandler() error {
 	return nil
 }
 
-type AllowHandlerOption func(*JNProxy) error
-
-func InstallAllowHandler(opts ...AllowHandlerOption) Option {
+func InstallAllowHandler(opts ...allow.Option) Option {
 	return func(p *JNProxy) error {
 		return p.installAllowHandler(opts...)
 	}
 }
 
-func (p *JNProxy) installAllowHandler(ahOpts ...AllowHandlerOption) error {
-	opts := []allow.Option{}
+func (p *JNProxy) installAllowHandler(opts ...allow.Option) error {
 	allowHandler, err := allow.New(opts...)
 	if err != nil {
 		return fmt.Errorf("allow new: %w", err)

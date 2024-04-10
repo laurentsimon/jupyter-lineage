@@ -9,26 +9,26 @@ import (
 	"github.com/laurentsimon/jupyter-lineage/pkg/slsa"
 )
 
-const name = "Deny/v0.1"
+const name = "Handler/v0.1"
 
-type Deny struct {
+type Handler struct {
 }
 
-func New() (*Deny, error) {
-	return &Deny{}, nil
+func New() (*Handler, error) {
+	return &Handler{}, nil
 }
 
-func (h *Deny) Name() string {
+func (h *Handler) Name() string {
 	return name
 }
 
-func (h *Deny) OnRequest(req *http.Request, ctx handler.Context) (*http.Request, *http.Response, bool, error) {
+func (h *Handler) OnRequest(req *http.Request, ctx handler.Context) (*http.Request, *http.Response, bool, error) {
 	return req,
 		handler.NewResponse(req, handler.ContentTypeText, http.StatusForbidden, "Forbidden"),
 		false, nil
 }
 
-func (h *Deny) OnResponse(resp *http.Response, ctx handler.Context) (*http.Response, error) {
+func (h *Handler) OnResponse(resp *http.Response, ctx handler.Context) (*http.Response, error) {
 	if resp.StatusCode != http.StatusForbidden {
 		return handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, "InternServerError"),
 			fmt.Errorf("%w: received response (%q) not forbidden (%q)", errs.ErrorInvalid, ctx.Req.Host, resp.StatusCode)
@@ -36,6 +36,6 @@ func (h *Deny) OnResponse(resp *http.Response, ctx handler.Context) (*http.Respo
 	return resp, nil
 }
 
-func (h *Deny) Dependencies(ctx handler.Context) ([]slsa.ResourceDescriptor, error) {
+func (h *Handler) Dependencies(ctx handler.Context) ([]slsa.ResourceDescriptor, error) {
 	return nil, nil
 }

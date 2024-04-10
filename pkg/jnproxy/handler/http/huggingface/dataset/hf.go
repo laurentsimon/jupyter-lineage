@@ -1,6 +1,7 @@
 package dataset
 
 import (
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
@@ -35,6 +36,8 @@ func (h *Dataset) OnRequest(req *http.Request, ctx handler.Context) (*http.Reque
 	// WARNING: absPath prefix must start and and with '/'.
 	interested := (req.Host == "huggingface.co" && strings.Contains(absPath, "/datasets/")) ||
 		(req.Host == "cdn-lfs.huggingface.co" && strings.Contains(absPath, "/datasets/")) ||
+		// TODO: This is the API to list pqrquest files
+		// https://huggingface.co/docs/datasets-server/en/parquet#using-the-dataset-viewer-api
 		(req.Host == "datasets-server.huggingface.co") ||
 		// WARNING: amazon bucket is not under huggingface.co so we need to match the path prefix.
 		(req.Host == "s3.amazonaws.com" && strings.HasPrefix(absPath, "/datasets.huggingface.co/")) ||
@@ -76,7 +79,27 @@ func (h *Dataset) OnResponse(resp *http.Response, ctx handler.Context) (*http.Re
 	}
 
 	var rd slsa.ResourceDescriptor
-	if contentType[0] == "application/x-gzip" {
+	switch contentType[0] {
+	case "todo/zip":
+		// Extract zipped files.
+		// https://pkg.go.dev/archive/zip#NewReader
+		reader := bytes.NewReader(b)
+		zipReader, err := zip.NewReader(reader, int64(len(b)))
+		if err != nil {
+			msg := fmt.Sprintf("zip reader: %v", err)
+			ctx.Logger.Errorf(msg)
+			return handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, msg), nil
+		}
+		for _, f := range zipReader.File {
+			// f.FileInfo().IsDir()
+			// fileInArchive, err := f.Open()
+			// io.Copy(dstFile, fileInArchive)
+			ctx.Logger.Debugf("unzipping file ", f.Name, f.CompressedSize, f.UncompressedSize64)
+		}
+	case "binary/octet-stream":
+		// https://huggingface.co/docs/datasets-server/en/parquet
+		// https://huggingface.co/docs/datasets/en/index
+	case "application/x-gzip":
 		// https://pkg.go.dev/compress/gzip#Reader.Read
 		reader := bytes.NewReader(b)
 		outputBytes := make([]byte, len(b))
@@ -92,23 +115,7 @@ func (h *Dataset) OnResponse(resp *http.Response, ctx handler.Context) (*http.Re
 			ctx.Logger.Errorf(msg)
 			return handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, msg), nil
 		}
-		/*
-			// Extract zipped files.
-			// https://pkg.go.dev/archive/zip#NewReader
-			zipReader, err := zip.NewReader(reader, int64(len(b)))
-			if err != nil {
-				msg := fmt.Sprintf("zip reader: %v", err)
-				ctx.Logger.Errorf(msg)
-				return handler.NewResponse(ctx.Req, handler.ContentTypeText, http.StatusInternalServerError, msg), nil
-			}
-			for _, f := range zipReader.File {
-				// f.FileInfo().IsDir()
-				// fileInArchive, err := f.Open()
-				// io.Copy(dstFile, fileInArchive)
-				ctx.Logger.Debugf("unzipping file ", f.Name, f.CompressedSize, f.UncompressedSize64)
-			}
-		*/
-	} else {
+	default:
 		hash := sha256.New()
 		hash.Write(b)
 		hh := fmt.Sprintf("%x", hash.Sum(nil))
@@ -134,6 +141,7 @@ func (h *Dataset) OnResponse(resp *http.Response, ctx handler.Context) (*http.Re
 			},
 		}
 	}
+
 	xRepoCommit := header.Get("X-Repo-Commit")
 	if xRepoCommit != "" {
 		rd.DigestSet["hint:gitCommit"] = xRepoCommit
